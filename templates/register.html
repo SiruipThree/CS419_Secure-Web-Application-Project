@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <h1>Create Account</h1>
+  <p>Registration form scaffold aligned with the assignment password policy.</p>
+  <form class="form-grid">
+    <label>
+      Username
+      <input type="text" name="username" autocomplete="username">
+    </label>
+    <label>
+      Email
+      <input type="email" name="email" autocomplete="email">
+    </label>
+    <label>
+      Password
+      <input type="password" name="password" autocomplete="new-password">
+    </label>
+    <label>
+      Confirm Password
+      <input type="password" name="confirm_password" autocomplete="new-password">
+    </label>
+    <button class="button" type="submit">Create Account</button>
+  </form>
+</section>
+{% endblock %}
