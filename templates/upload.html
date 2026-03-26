@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Upload{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <h1>Upload Document</h1>
+  <p>Use this route for encrypted upload and version creation.</p>
+  <form class="form-grid" enctype="multipart/form-data">
+    <label>
+      Document Title
+      <input type="text" name="title">
+    </label>
+    <label>
+      File
+      <input type="file" name="document">
+    </label>
+    <button class="button" type="submit">Upload Securely</button>
+  </form>
+</section>
+{% endblock %}

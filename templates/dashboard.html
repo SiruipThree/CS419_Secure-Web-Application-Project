@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <h1>Dashboard</h1>
+  <p>This page will show owned documents, shared documents, and recent audit events.</p>
+</section>
+
+<section class="card-grid">
+  <article class="card">
+    <h2>Owned Documents</h2>
+    <p>List of documents created by the current user.</p>
+  </article>
+  <article class="card">
+    <h2>Shared With Me</h2>
+    <p>Documents accessible through owner, editor, or viewer permissions.</p>
+  </article>
+  <article class="card">
+    <h2>Audit Trail</h2>
+    <p>Recent uploads, downloads, permission changes, and version history.</p>
+  </article>
+</section>
+{% endblock %}
