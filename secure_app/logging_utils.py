@@ -1,37 +1,85 @@
-import json
 import logging
+import json
 from datetime import datetime, timezone
-from pathlib import Path
+from flask import request, has_request_context
+
+class SecurityLogger:
+    def __init__(self, log_file='security_log'):
+        self.logger = logging.getLogger('security')
+        self.logger.setLevel(logging.INFO)
+        
+        # Ensure we don't add multiple handlers if instantiated more than once
+        if not self.logger.handlers:
+            handler = logging.FileHandler(log_file)
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+
+    def log_event(self, event_type, user_id, details, severity='INFO'):
+        """Log security event (Logins, Lockouts, Password Changes)"""
+        
+        # Safely pull Flask request data only if an active web request is happening
+        ip_address = request.remote_addr if has_request_context() else None
+        user_agent = request.headers.get('User-Agent') if has_request_context() else None
+
+        log_entry = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'event_type': event_type,
+            'user_id': user_id,
+            'ip_address': ip_address,
+            'user_agent': user_agent,
+            'details': details,
+            'severity': severity
+        }
+        
+        payload = json.dumps(log_entry)
+        
+        if severity == 'CRITICAL':
+            self.logger.critical(payload)
+        elif severity == 'ERROR':
+            self.logger.error(payload)
+        elif severity == 'WARNING':
+            self.logger.warning(payload)
+        else:
+            self.logger.info(payload)
 
 
-def _build_file_handler(path: Path) -> logging.FileHandler:
-    handler = logging.FileHandler(path)
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
-    return handler
+class AccessLogger:
+    def __init__(self, log_file='access_log'):
+        self.logger = logging.getLogger('access')
+        self.logger.setLevel(logging.INFO)
+        
+        if not self.logger.handlers:
+            handler = logging.FileHandler(log_file)
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
 
+    def log_event(self, event_type, user_id, details, severity='INFO'):
+        """Log data access event (Read, Write, Delete Documents)"""
+        
+        ip_address = request.remote_addr if has_request_context() else None
 
-def configure_app_logging(app) -> None:
-    security_logger = logging.getLogger("security")
-    access_logger = logging.getLogger("access")
+        log_entry = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'event_type': event_type,
+            'user_id': user_id,
+            'ip_address': ip_address,
+            'details': details,
+            'severity': severity
+        }
+        
+        payload = json.dumps(log_entry)
+        
+        if severity == 'CRITICAL':
+            self.logger.critical(payload)
+        elif severity == 'ERROR':
+            self.logger.error(payload)
+        elif severity == 'WARNING':
+            self.logger.warning(payload)
+        else:
+            self.logger.info(payload)
 
-    security_logger.setLevel(logging.INFO)
-    access_logger.setLevel(logging.INFO)
-
-    if not security_logger.handlers:
-        security_logger.addHandler(_build_file_handler(app.config["SECURITY_LOG_FILE"]))
-    if not access_logger.handlers:
-        access_logger.addHandler(_build_file_handler(app.config["ACCESS_LOG_FILE"]))
-
-
-def log_security_event(app, event_type: str, details: dict, severity: str = "INFO") -> None:
-    logger = logging.getLogger("security")
-    payload = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "event_type": event_type,
-        "severity": severity,
-        "details": details,
-    }
-    log_method = getattr(logger, severity.lower(), logger.info)
-    log_method(json.dumps(payload))
+# Instantiate them here so you can easily import them into auth.py and other files
+security_log = SecurityLogger()
+access_log = AccessLogger()
