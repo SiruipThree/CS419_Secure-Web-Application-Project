@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-PASSWORD_SPECIALS = set("!@#$%^&*")
+PASSWORD_SPECIALS = set("(!@#$%^&*)")
 
 
 def sanitize_text(value: str) -> str:
