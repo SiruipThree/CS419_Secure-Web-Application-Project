@@ -6,10 +6,23 @@
 <section class="panel">
   <h1>Upload Document</h1>
   <p>Use this route for encrypted upload and version creation.</p>
-  <form class="form-grid" enctype="multipart/form-data">
+  {% if error %}
+  <p>{{ error }}</p>
+  {% endif %}
+  {% if success %}
+  <p>{{ success }}</p>
+  {% endif %}
+  {% if uploaded_document %}
+  <p>
+    <a href="{{ url_for('download_document', document_id=uploaded_document.id) }}">
+      Download the decrypted copy
+    </a>
+  </p>
+  {% endif %}
+  <form class="form-grid" method="post" enctype="multipart/form-data">
     <label>
       Document Title
-      <input type="text" name="title">
+      <input type="text" name="title" value="{{ title_value }}">
     </label>
     <label>
       File

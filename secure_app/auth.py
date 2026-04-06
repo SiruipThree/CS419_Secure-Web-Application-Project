@@ -1,16 +1,35 @@
 import bcrypt
 import time
-import re
 from pathlib import Path
-from logging_utils import security_log, access_log
+
+from secure_app.logging_utils import security_log
 from secure_app.storage import load_json, save_json
-from security import validate_password_strength, validate_email, validate_username
+from secure_app.security import (
+    validate_email,
+    validate_password_strength,
+    validate_username,
+)
+
 
 class UserAuth:
     def __init__(self, users_file='data/users.json', rate_limits_file='data/rate_limits.json'):
-        # Convert string paths to pathlib.Path objects for your storage functions
         self.users_file = Path(users_file)
         self.rate_limits_file = Path(rate_limits_file)
+
+    def _load_users(self):
+        users = load_json(self.users_file, {})
+
+        if isinstance(users, dict):
+            return users
+
+        if isinstance(users, list):
+            return {
+                user["username"]: user
+                for user in users
+                if isinstance(user, dict) and user.get("username")
+            }
+
+        return {}
 
     def _check_rate_limit(self, ip_address):
         """Max 10 login attempts per IP per minute"""
@@ -50,7 +69,7 @@ class UserAuth:
             security_log.log_event('VALIDATION_FAILED', user_id=username, details={'reason': validation_message}, severity='WARNING')
             return {"error": validation_message}
 
-        users = load_json(self.users_file, {})
+        users = self._load_users()
         
         if username in users:
             security_log.log_event('REGISTRATION_FAILED', user_id=username, details={'reason': 'Username already taken'}, severity='WARNING')
@@ -87,7 +106,7 @@ class UserAuth:
             )
             return {"error": "Rate limit exceeded. Try again in a minute."}
 
-        users = load_json(self.users_file, {})
+        users = self._load_users()
         user = users.get(username)
 
         # Generic error to prevent username enumeration
@@ -130,7 +149,7 @@ class UserAuth:
         
 
     def change_password(self, username, old_password, new_password, confirm_password):
-        users = load_json(self.users_file, {})
+        users = self._load_users()
         user = users.get(username)
 
         # Fail safe if user doesn't exist in the system

@@ -9,6 +9,12 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
     ENV = os.getenv("FLASK_ENV", "development")
     DEBUG = ENV == "development"
+    FORCE_HTTPS = os.getenv(
+        "FORCE_HTTPS",
+        "0" if ENV == "development" else "1",
+    ) == "1"
+    TLS_CERT_FILE = os.getenv("TLS_CERT_FILE")
+    TLS_KEY_FILE = os.getenv("TLS_KEY_FILE")
 
     SESSION_COOKIE_NAME = "session_token"
     SESSION_COOKIE_HTTPONLY = True
@@ -22,6 +28,7 @@ class Config:
 
     MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "16"))
     MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
+    DOCUMENT_TITLE_MAX_LENGTH = 120
     ALLOWED_EXTENSIONS = {
         "pdf",
         "txt",
@@ -30,6 +37,17 @@ class Config:
         "png",
         "jpg",
         "jpeg",
+    }
+    ALLOWED_MIME_TYPES = {
+        "pdf": {"application/pdf"},
+        "txt": {"text/plain"},
+        "doc": {"application/msword"},
+        "docx": {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        },
+        "png": {"image/png"},
+        "jpg": {"image/jpeg"},
+        "jpeg": {"image/jpeg"},
     }
 
     DATA_DIR = BASE_DIR / "data"
@@ -44,3 +62,4 @@ class Config:
     LOG_DIR = BASE_DIR / "logs"
     SECURITY_LOG_FILE = LOG_DIR / "security.log"
     ACCESS_LOG_FILE = LOG_DIR / "access.log"
+    ENCRYPTION_KEY_FILE = BASE_DIR / "secret.key"
