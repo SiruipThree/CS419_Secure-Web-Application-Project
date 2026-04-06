@@ -11,7 +11,18 @@
 <section class="card-grid">
   <article class="card">
     <h2>Owned Documents</h2>
-    <p>List of documents created by the current user.</p>
+    {% if owned_documents %}
+    <ul>
+      {% for document in owned_documents %}
+      <li>
+        {{ document.title }} v{{ document.version }} -
+        <a href="{{ url_for('download_document', document_id=document.id) }}">download</a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No documents uploaded yet.</p>
+    {% endif %}
   </article>
   <article class="card">
     <h2>Shared With Me</h2>
@@ -19,7 +30,15 @@
   </article>
   <article class="card">
     <h2>Audit Trail</h2>
-    <p>Recent uploads, downloads, permission changes, and version history.</p>
+    {% if recent_audit_events %}
+    <ul>
+      {% for event in recent_audit_events %}
+      <li>{{ event.event_type }} by {{ event.user_id }} at {{ event.timestamp }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No audit events recorded yet.</p>
+    {% endif %}
   </article>
 </section>
 {% endblock %}

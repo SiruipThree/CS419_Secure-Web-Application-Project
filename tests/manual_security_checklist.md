@@ -10,6 +10,12 @@
 - [ ] Viewer cannot edit document
 - [ ] Path traversal filename rejected
 - [ ] Unsupported file extension rejected
+- [ ] MIME type mismatch rejected
+- [ ] File signature mismatch rejected
+- [ ] Oversized upload rejected with 413
+- [ ] Uploaded document stored encrypted at rest
+- [ ] HTTP redirected to HTTPS outside development
+- [ ] HSTS header present on HTTPS responses
 - [ ] Session expires after timeout
 - [ ] Logout invalidates session token
 - [ ] Required security headers present
