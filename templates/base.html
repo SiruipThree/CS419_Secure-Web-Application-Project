@@ -12,10 +12,23 @@
         <a class="brand" href="{{ url_for('index') }}">SecureShare</a>
         <nav class="nav-links">
           <a href="{{ url_for('index') }}">Home</a>
+          <a href="{{ url_for('shared') }}">Shared</a>
+          {% if current_user.role in ['admin', 'user'] %}
           <a href="{{ url_for('dashboard') }}">Dashboard</a>
           <a href="{{ url_for('upload') }}">Upload</a>
-          <a href="{{ url_for('shared') }}">Shared</a>
+          {% endif %}
+          {% if current_user.role == "admin" %}
           <a href="{{ url_for('admin') }}">Admin</a>
+          {% endif %}
+          {% if current_user.is_authenticated %}
+          <span>{{ current_user.username }} ({{ current_user.role }})</span>
+          <form method="post" action="{{ url_for('logout') }}">
+            <button class="button button-secondary" type="submit">Logout</button>
+          </form>
+          {% else %}
+          <a href="{{ url_for('login') }}">Login</a>
+          <a href="{{ url_for('register') }}">Register</a>
+          {% endif %}
         </nav>
       </div>
     </header>

@@ -4,7 +4,8 @@ from typing import Any
 
 
 DEFAULT_JSON_FILES = {
-    "USERS_FILE": [],
+    "USERS_FILE": {},
+    "RATE_LIMITS_FILE": {},
     "SESSIONS_FILE": {},
     "DOCUMENTS_FILE": [],
     "SHARES_FILE": [],

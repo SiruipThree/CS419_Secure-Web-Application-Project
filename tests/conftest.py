@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -8,8 +10,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app import create_app
+from secure_app.auth import UserAuth
 from secure_app.logging_utils import configure_app_logging
-from secure_app.storage import bootstrap_storage
+from secure_app.storage import bootstrap_storage, load_json, save_json
 
 
 @pytest.fixture()
@@ -22,6 +25,7 @@ def flask_app(tmp_path):
         TESTING=True,
         DATA_DIR=data_dir,
         USERS_FILE=data_dir / "users.json",
+        RATE_LIMITS_FILE=data_dir / "rate_limits.json",
         SESSIONS_FILE=data_dir / "sessions.json",
         DOCUMENTS_FILE=data_dir / "documents.json",
         SHARES_FILE=data_dir / "shares.json",
@@ -43,3 +47,70 @@ def flask_app(tmp_path):
 def client(flask_app):
     with flask_app.test_client() as client:
         yield client
+
+
+@pytest.fixture()
+def make_user(flask_app):
+    auth_service = UserAuth(
+        flask_app.config["USERS_FILE"],
+        flask_app.config["RATE_LIMITS_FILE"],
+    )
+
+    def _make_user(
+        username: str,
+        *,
+        email: str | None = None,
+        password: str = "StrongPass!123",
+        role: str = "user",
+    ):
+        result = auth_service.register(
+            username,
+            email or f"{username}@example.com",
+            password,
+            password,
+        )
+        assert result.get("success"), result
+
+        users = load_json(flask_app.config["USERS_FILE"], {})
+        users[username]["role"] = role
+        save_json(flask_app.config["USERS_FILE"], users)
+        return users[username]
+
+    return _make_user
+
+
+@pytest.fixture()
+def login_as(client, make_user):
+    def _login_as(
+        username: str,
+        *,
+        email: str | None = None,
+        password: str = "StrongPass!123",
+        role: str = "user",
+    ):
+        make_user(username, email=email, password=password, role=role)
+        response = client.post(
+            "/login",
+            data={"identifier": username, "password": password},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        return response
+
+    return _login_as
+
+
+@pytest.fixture()
+def grant_share(flask_app):
+    def _grant_share(document_id: str, principal: str, role: str):
+        shares = load_json(flask_app.config["SHARES_FILE"], [])
+        shares.append(
+            {
+                "document_id": document_id,
+                "principal": principal,
+                "role": role,
+            }
+        )
+        save_json(flask_app.config["SHARES_FILE"], shares)
+
+    return _grant_share
