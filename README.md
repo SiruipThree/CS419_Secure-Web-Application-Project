@@ -11,9 +11,15 @@ Secure document sharing system scaffold for the CS 419 course project.
 
 ## Current Status
 
-This repository now contains the project structure and a minimal Flask scaffold.
-Core security features, document encryption, sharing logic, and penetration tests
-still need to be implemented.
+This repository now includes:
+
+- project structure and Flask app scaffold
+- input validation helpers for usernames, emails, passwords, titles, and uploads
+- path traversal defenses and safe file naming for document storage
+- encrypted document upload and download using `cryptography.Fernet`
+- optional HTTPS redirect/TLS runtime configuration for non-development use
+- security and access log wiring plus audit trail persistence for document events
+- smoke tests and document-focused security tests
 
 ## Project Layout
 
@@ -41,10 +47,18 @@ pip install -r requirements.txt
 flask --app app.py --debug run
 ```
 
-## Next Implementation Priorities
+## Implemented For Parts C And D
 
-1. Registration and login with bcrypt and account lockout
-2. Server-side session management and secure cookies
-3. Encrypted document upload, download, and versioning
-4. Admin, user, guest, owner, editor, viewer authorization rules
-5. Security event logging and penetration test coverage
+1. Form and upload validation using whitelist rules, size limits, and file signature checks
+2. XSS-aware rendering using Jinja auto-escaping and explicit text sanitization helpers
+3. Path traversal prevention for stored document payloads
+4. Encrypted document storage at rest with generated Fernet key management
+5. HTTPS enforcement support and HSTS on secure requests
+6. Audit logging for document upload and download activity
+
+## Remaining Priorities
+
+1. Finish route-level and object-level authorization for admin, user, guest, owner, editor, and viewer flows
+2. Complete server-side session lifecycle handling
+3. Expand authentication routes to fully use the updated auth service
+4. Extend penetration test coverage and final course deliverables
