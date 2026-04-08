@@ -1,85 +1,94 @@
-import logging
 import json
+import logging
 from datetime import datetime, timezone
-from flask import request, has_request_context
+from pathlib import Path
+from typing import Any
 
-class SecurityLogger:
-    def __init__(self, log_file='security_log'):
-        self.logger = logging.getLogger('security')
+from flask import has_request_context, request
+
+
+class _EventLogger:
+    def __init__(self, name: str):
+        self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.INFO)
-        
-        # Ensure we don't add multiple handlers if instantiated more than once
+        self.logger.propagate = False
+        self._configured_path: str | None = None
+
         if not self.logger.handlers:
-            handler = logging.FileHandler(log_file)
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
+            self.logger.addHandler(logging.NullHandler())
 
-    def log_event(self, event_type, user_id, details, severity='INFO'):
-        """Log security event (Logins, Lockouts, Password Changes)"""
-        
-        # Safely pull Flask request data only if an active web request is happening
-        ip_address = request.remote_addr if has_request_context() else None
-        user_agent = request.headers.get('User-Agent') if has_request_context() else None
+    def configure(self, log_file: str | Path) -> None:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-        log_entry = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'event_type': event_type,
-            'user_id': user_id,
-            'ip_address': ip_address,
-            'user_agent': user_agent,
-            'details': details,
-            'severity': severity
+        resolved_path = str(path.resolve())
+        if self._configured_path == resolved_path:
+            return
+
+        self.logger.handlers.clear()
+        handler = logging.FileHandler(path)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
+        self.logger.addHandler(handler)
+        self._configured_path = resolved_path
+
+    def _emit(self, severity: str, payload: dict[str, Any]) -> None:
+        log_method = getattr(self.logger, severity.lower(), self.logger.info)
+        log_method(json.dumps(payload))
+
+
+class SecurityLogger(_EventLogger):
+    def __init__(self):
+        super().__init__("security")
+
+    def log_event(
+        self,
+        event_type: str,
+        user_id: str | None,
+        details: dict[str, Any],
+        severity: str = "INFO",
+    ) -> None:
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "user_id": user_id,
+            "ip_address": request.remote_addr if has_request_context() else None,
+            "user_agent": (
+                request.headers.get("User-Agent") if has_request_context() else None
+            ),
+            "details": details,
+            "severity": severity,
         }
-        
-        payload = json.dumps(log_entry)
-        
-        if severity == 'CRITICAL':
-            self.logger.critical(payload)
-        elif severity == 'ERROR':
-            self.logger.error(payload)
-        elif severity == 'WARNING':
-            self.logger.warning(payload)
-        else:
-            self.logger.info(payload)
+        self._emit(severity, payload)
 
 
-class AccessLogger:
-    def __init__(self, log_file='access_log'):
-        self.logger = logging.getLogger('access')
-        self.logger.setLevel(logging.INFO)
-        
-        if not self.logger.handlers:
-            handler = logging.FileHandler(log_file)
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
+class AccessLogger(_EventLogger):
+    def __init__(self):
+        super().__init__("access")
 
-    def log_event(self, event_type, user_id, details, severity='INFO'):
-        """Log data access event (Read, Write, Delete Documents)"""
-        
-        ip_address = request.remote_addr if has_request_context() else None
-
-        log_entry = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'event_type': event_type,
-            'user_id': user_id,
-            'ip_address': ip_address,
-            'details': details,
-            'severity': severity
+    def log_event(
+        self,
+        event_type: str,
+        user_id: str | None,
+        details: dict[str, Any],
+        severity: str = "INFO",
+    ) -> None:
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "user_id": user_id,
+            "ip_address": request.remote_addr if has_request_context() else None,
+            "details": details,
+            "severity": severity,
         }
-        
-        payload = json.dumps(log_entry)
-        
-        if severity == 'CRITICAL':
-            self.logger.critical(payload)
-        elif severity == 'ERROR':
-            self.logger.error(payload)
-        elif severity == 'WARNING':
-            self.logger.warning(payload)
-        else:
-            self.logger.info(payload)
+        self._emit(severity, payload)
 
-# Instantiate them here so you can easily import them into auth.py and other files
+
 security_log = SecurityLogger()
 access_log = AccessLogger()
+
+
+def configure_app_logging(app) -> None:
+    security_log.configure(app.config["SECURITY_LOG_FILE"])
+    access_log.configure(app.config["ACCESS_LOG_FILE"])
