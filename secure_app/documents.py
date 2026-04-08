@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import secrets
 from datetime import datetime, timezone
@@ -5,6 +7,14 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+from secure_app.access_control import (
+    GUEST_SHARE_PRINCIPALS,
+    can_edit_document,
+    can_view_document,
+    higher_document_role,
+    normalize_document_role,
+    normalize_system_role,
+)
 from secure_app.logging_utils import access_log, security_log
 from secure_app.security import (
     safe_file_path,
@@ -16,6 +26,10 @@ from secure_app.storage import load_json, save_json
 
 def load_documents(config):
     return load_json(config["DOCUMENTS_FILE"], [])
+
+
+def load_shares(config):
+    return load_json(config["SHARES_FILE"], [])
 
 
 def _load_cipher(config) -> Fernet:
@@ -43,7 +57,7 @@ def _next_document_version(documents: list[dict], owner: str, title: str) -> int
 def _append_audit_event(
     config,
     event_type: str,
-    user_id: str,
+    user_id: str | None,
     details: dict,
 ) -> None:
     audit_events = load_json(config["AUDIT_FILE"], [])
@@ -58,8 +72,14 @@ def _append_audit_event(
     save_json(config["AUDIT_FILE"], audit_events)
 
 
-def load_recent_audit_events(config, limit: int = 10) -> list[dict]:
+def load_recent_audit_events(
+    config,
+    limit: int = 10,
+    user_id: str | None = None,
+) -> list[dict]:
     events = load_json(config["AUDIT_FILE"], [])
+    if user_id is not None:
+        events = [event for event in events if event.get("user_id") == user_id]
     return list(reversed(events[-limit:]))
 
 
@@ -68,6 +88,62 @@ def list_recent_documents(config, owner: str | None = None, limit: int = 10) -> 
     if owner is not None:
         documents = [document for document in documents if document.get("owner") == owner]
     return list(reversed(documents[-limit:]))
+
+
+def _share_applies_to_user(share: dict, user_id: str | None, system_role: str) -> bool:
+    principal = share.get("principal")
+    if principal == user_id and user_id:
+        return True
+    if principal in GUEST_SHARE_PRINCIPALS:
+        return True
+    if principal == "authenticated":
+        return normalize_system_role(system_role) in {"admin", "user"}
+    return False
+
+
+def get_document_role(
+    config,
+    document: dict,
+    user_id: str | None = None,
+    system_role: str = "guest",
+) -> str | None:
+    if user_id and document.get("owner") == user_id:
+        return "owner"
+
+    resolved_role = None
+    for share in load_shares(config):
+        if share.get("document_id") != document.get("id"):
+            continue
+        if not _share_applies_to_user(share, user_id, system_role):
+            continue
+        resolved_role = higher_document_role(resolved_role, share.get("role"))
+    return normalize_document_role(resolved_role)
+
+
+def list_shared_documents(
+    config,
+    user_id: str | None = None,
+    system_role: str = "guest",
+    limit: int = 10,
+) -> list[dict]:
+    visible_documents = []
+    normalized_system_role = normalize_system_role(system_role)
+
+    for document in load_documents(config):
+        document_role = get_document_role(config, document, user_id, normalized_system_role)
+        if not can_view_document(normalized_system_role, document_role):
+            continue
+        if normalized_system_role != "admin" and user_id and document.get("owner") == user_id:
+            continue
+
+        visible_documents.append(
+            {
+                **document,
+                "document_role": document_role or "admin",
+            }
+        )
+
+    return list(reversed(visible_documents[-limit:]))
 
 
 def store_encrypted_document(config, title: str, uploaded_file, owner: str = "demo-user"):
@@ -154,8 +230,49 @@ def get_document_record(config, document_id: str) -> dict:
     raise FileNotFoundError("Document not found.")
 
 
-def decrypt_document(config, document_id: str, user_id: str = "demo-user"):
+def authorize_document_access(
+    config,
+    document_id: str,
+    user_id: str | None = None,
+    system_role: str = "guest",
+    require_edit: bool = False,
+) -> tuple[dict, str | None]:
     document = get_document_record(config, document_id)
+    document_role = get_document_role(config, document, user_id, system_role)
+    allowed = (
+        can_edit_document(system_role, document_role)
+        if require_edit
+        else can_view_document(system_role, document_role)
+    )
+    if allowed:
+        return document, document_role
+
+    security_log.log_event(
+        "DOCUMENT_ACCESS_DENIED",
+        user_id,
+        {
+            "document_id": document_id,
+            "system_role": normalize_system_role(system_role),
+            "document_role": document_role,
+            "require_edit": require_edit,
+        },
+        severity="WARNING",
+    )
+    raise PermissionError("You do not have access to this document.")
+
+
+def decrypt_document(
+    config,
+    document_id: str,
+    user_id: str | None = None,
+    system_role: str = "guest",
+):
+    document, document_role = authorize_document_access(
+        config,
+        document_id,
+        user_id=user_id,
+        system_role=system_role,
+    )
     encrypted_path = safe_file_path(
         document["storage_name"], config["DOCUMENT_STORAGE_DIR"]
     )
@@ -173,7 +290,11 @@ def decrypt_document(config, document_id: str, user_id: str = "demo-user"):
     access_log.log_event(
         "DOCUMENT_DOWNLOAD",
         user_id,
-        {"document_id": document_id, "filename": document["filename"]},
+        {
+            "document_id": document_id,
+            "filename": document["filename"],
+            "document_role": document_role or normalize_system_role(system_role),
+        },
     )
     _append_audit_event(
         config,

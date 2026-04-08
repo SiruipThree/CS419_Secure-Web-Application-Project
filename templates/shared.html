@@ -5,6 +5,25 @@
 {% block content %}
 <section class="panel">
   <h1>Shared Documents</h1>
-  <p>This page will show document-level permissions such as owner, editor, and viewer.</p>
+  <p>This page shows the documents available to your current role through owner, editor, or viewer permissions.</p>
+</section>
+
+<section class="card-grid">
+  <article class="card">
+    <h2>Available Documents</h2>
+    {% if shared_documents %}
+    <ul>
+      {% for document in shared_documents %}
+      <li>
+        {{ document.title }} v{{ document.version }} -
+        {{ document.document_role }} access -
+        <a href="{{ url_for('download_document', document_id=document.id) }}">download</a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No shared documents are available to your current role.</p>
+    {% endif %}
+  </article>
 </section>
 {% endblock %}

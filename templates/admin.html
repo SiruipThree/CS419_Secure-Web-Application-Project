@@ -7,4 +7,43 @@
   <h1>Admin Console</h1>
   <p>Reserved for user management, system metrics, and security event review.</p>
 </section>
+
+<section class="card-grid">
+  <article class="card">
+    <h2>Users</h2>
+    {% if users %}
+    <ul>
+      {% for user in users %}
+      <li>{{ user.username }} - {{ user.role }} - {{ user.email }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No users found.</p>
+    {% endif %}
+  </article>
+  <article class="card">
+    <h2>Recent Documents</h2>
+    {% if recent_documents %}
+    <ul>
+      {% for document in recent_documents %}
+      <li>{{ document.title }} v{{ document.version }} by {{ document.owner }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No documents uploaded yet.</p>
+    {% endif %}
+  </article>
+  <article class="card">
+    <h2>Audit Trail</h2>
+    {% if recent_audit_events %}
+    <ul>
+      {% for event in recent_audit_events %}
+      <li>{{ event.event_type }} by {{ event.user_id }} at {{ event.timestamp }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No audit events recorded yet.</p>
+    {% endif %}
+  </article>
+</section>
 {% endblock %}

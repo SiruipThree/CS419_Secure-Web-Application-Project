@@ -52,6 +52,7 @@ class Config:
 
     DATA_DIR = BASE_DIR / "data"
     USERS_FILE = DATA_DIR / "users.json"
+    RATE_LIMITS_FILE = DATA_DIR / "rate_limits.json"
     SESSIONS_FILE = DATA_DIR / "sessions.json"
     DOCUMENTS_FILE = DATA_DIR / "documents.json"
     SHARES_FILE = DATA_DIR / "shares.json"
