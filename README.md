@@ -17,6 +17,9 @@ This repository now includes:
 - input validation helpers for usernames, emails, passwords, titles, and uploads
 - path traversal defenses and safe file naming for document storage
 - encrypted document upload and download using `cryptography.Fernet`
+- role-based access control for `admin`, `user`, and `guest` system roles
+- document-level authorization for `owner`, `editor`, and `viewer` permissions
+- server-side session creation, validation, and logout using the file-based store
 - optional HTTPS redirect/TLS runtime configuration for non-development use
 - security and access log wiring plus audit trail persistence for document events
 - smoke tests and document-focused security tests
@@ -58,7 +61,7 @@ flask --app app.py --debug run
 
 ## Remaining Priorities
 
-1. Finish route-level and object-level authorization for admin, user, guest, owner, editor, and viewer flows
-2. Complete server-side session lifecycle handling
-3. Expand authentication routes to fully use the updated auth service
+1. Add admin workflows for managing user roles and document sharing assignments
+2. Expand session hardening with logout-all, idle timeout refresh, and CSRF protections
+3. Build the remaining document collaboration flows for editors and viewers
 4. Extend penetration test coverage and final course deliverables

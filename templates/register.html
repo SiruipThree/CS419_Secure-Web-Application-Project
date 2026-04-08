@@ -6,14 +6,17 @@
 <section class="panel">
   <h1>Create Account</h1>
   <p>Registration form scaffold aligned with the assignment password policy.</p>
-  <form class="form-grid">
+  {% if error %}
+  <p>{{ error }}</p>
+  {% endif %}
+  <form class="form-grid" method="post">
     <label>
       Username
-      <input type="text" name="username" autocomplete="username">
+      <input type="text" name="username" autocomplete="username" value="{{ username_value }}">
     </label>
     <label>
       Email
-      <input type="email" name="email" autocomplete="email">
+      <input type="email" name="email" autocomplete="email" value="{{ email_value }}">
     </label>
     <label>
       Password

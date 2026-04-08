@@ -2,7 +2,9 @@ import json
 from io import BytesIO
 
 
-def test_upload_rejects_invalid_extension(client):
+def test_upload_rejects_invalid_extension(client, login_as):
+    login_as("alice")
+
     response = client.post(
         "/upload",
         data={
@@ -16,7 +18,9 @@ def test_upload_rejects_invalid_extension(client):
     assert b"File type is not allowed." in response.data
 
 
-def test_upload_rejects_content_signature_mismatch(client):
+def test_upload_rejects_content_signature_mismatch(client, login_as):
+    login_as("alice")
+
     response = client.post(
         "/upload",
         data={
@@ -30,7 +34,8 @@ def test_upload_rejects_content_signature_mismatch(client):
     assert b"Uploaded file contents do not match the selected file type." in response.data
 
 
-def test_upload_encrypts_file_and_download_restores_plaintext(client, flask_app):
+def test_upload_encrypts_file_and_download_restores_plaintext(client, flask_app, login_as):
+    login_as("alice")
     plaintext = b"Top secret launch plan"
 
     response = client.post(
@@ -67,7 +72,8 @@ def test_upload_encrypts_file_and_download_restores_plaintext(client, flask_app)
     ]
 
 
-def test_upload_too_large_returns_413(client, flask_app):
+def test_upload_too_large_returns_413(client, flask_app, login_as):
+    login_as("alice")
     flask_app.config["MAX_CONTENT_LENGTH"] = 32
 
     response = client.post(
