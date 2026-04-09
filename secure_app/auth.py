@@ -20,6 +20,20 @@ class UserAuth:
         self.users_file = Path(users_file)
         self.rate_limits_file = Path(rate_limits_file)
 
+    def _log_login_failure(
+        self,
+        identifier: str | None,
+        reason: str,
+        severity: str = "WARNING",
+    ) -> None:
+        normalized_identifier = (identifier or "").strip() or None
+        security_log.log_event(
+            "LOGIN_FAILED",
+            user_id=normalized_identifier,
+            details={"reason": reason},
+            severity=severity,
+        )
+
     def _load_users(self) -> dict[str, dict]:
         users = load_json(self.users_file, {})
 
@@ -172,23 +186,31 @@ class UserAuth:
         return {"success": True, "user_id": username, "role": "user"}
 
     def login(self, identifier, password, ip_address):
+        normalized_identifier = (identifier or "").strip()
+
         if not self._check_rate_limit(ip_address):
+            self._log_login_failure(
+                normalized_identifier,
+                "Rate limit exceeded. Try again in a minute.",
+            )
             security_log.log_event(
                 "SUSPICIOUS_ACTIVITY",
-                user_id=identifier or None,
+                user_id=normalized_identifier or None,
                 details={"reason": "Rate limit exceeded - Possible brute force"},
                 severity="WARNING",
             )
             return {"error": "Rate limit exceeded. Try again in a minute."}
 
-        username, user = self.find_user(identifier)
+        username, user = self.find_user(normalized_identifier)
 
         if not user or not username:
+            self._log_login_failure(normalized_identifier, "Unknown user or email")
             return {"error": "Invalid credentials"}
 
         locked_until = user.get("locked_until")
         if locked_until and time.time() < locked_until:
             remaining = int((locked_until - time.time()) / 60)
+            self._log_login_failure(username, "Account locked")
             return {"error": f"Account locked. Try again in {remaining} minutes."}
 
         if bcrypt.checkpw(password.encode("utf-8"), user["password_hash"].encode("utf-8")):
@@ -218,12 +240,7 @@ class UserAuth:
         users = self._load_users()
         users[username] = user
         self._save_users(users)
-        security_log.log_event(
-            "LOGIN_FAILED",
-            user_id=username,
-            details={"reason": "Invalid password match"},
-            severity="WARNING",
-        )
+        self._log_login_failure(username, "Invalid password match")
         return {"error": "Invalid credentials"}
 
     def change_password(self, username, old_password, new_password, confirm_password):

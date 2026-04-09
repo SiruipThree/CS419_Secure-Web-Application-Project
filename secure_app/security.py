@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import re
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
+from urllib.parse import urlsplit
 
 from flask import has_request_context, request
 from werkzeug.utils import secure_filename
@@ -14,10 +16,22 @@ from werkzeug.utils import secure_filename
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PASSWORD_SPECIALS = set("!@#$%^&*")
+EICAR_TEST_SIGNATURE = (
+    b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$"
+    b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+)
 
 
 def sanitize_text(value: str) -> str:
     return html.escape(value.strip())
+
+
+def sanitize_output(data: Any) -> Any:
+    """Escape string output for explicit non-Jinja rendering contexts."""
+
+    if isinstance(data, str):
+        return html.escape(data)
+    return data
 
 
 def validate_username(username: str) -> bool:
@@ -26,6 +40,61 @@ def validate_username(username: str) -> bool:
 
 def validate_email(email: str) -> bool:
     return bool(EMAIL_PATTERN.fullmatch(email))
+
+
+def validate_url(
+    value: str,
+    *,
+    allowed_schemes: Iterable[str] = ("https",),
+    max_length: int = 2048,
+    allow_private_hosts: bool = False,
+) -> tuple[bool, str]:
+    normalized_value = (value or "").strip()
+    if not normalized_value:
+        return False, "URL is required."
+
+    if len(normalized_value) > max_length:
+        return False, f"URL must be {max_length} characters or fewer."
+
+    if any(ord(char) < 32 for char in normalized_value):
+        return False, "URL contains invalid control characters."
+
+    parsed = urlsplit(normalized_value)
+    normalized_schemes = {scheme.lower() for scheme in allowed_schemes}
+    scheme = parsed.scheme.lower()
+
+    if scheme not in normalized_schemes:
+        allowed_label = ", ".join(sorted(normalized_schemes))
+        return False, f"URL scheme must be one of: {allowed_label}."
+
+    if not parsed.netloc or not parsed.hostname:
+        return False, "URL must include a hostname."
+
+    if parsed.username or parsed.password:
+        return False, "URL must not include embedded credentials."
+
+    host = parsed.hostname
+    if not allow_private_hosts:
+        if host.lower() == "localhost":
+            return False, "URL must not target localhost."
+
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            if "." not in host:
+                return False, "URL must use a fully qualified public hostname."
+        else:
+            if (
+                address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_multicast
+                or address.is_reserved
+                or address.is_unspecified
+            ):
+                return False, "URL must target a public host."
+
+    return True, "URL is valid."
 
 
 def validate_password_strength(password: str) -> tuple[bool, str]:
@@ -110,6 +179,10 @@ def validate_uploaded_file(
     if not matches_file_signature(extension, payload):
         return False, "Uploaded file contents do not match the selected file type.", ""
 
+    is_clean, scan_message = scan_for_malware(payload)
+    if not is_clean:
+        return False, scan_message, ""
+
     return True, "File is valid.", cleaned_name
 
 
@@ -151,6 +224,13 @@ def matches_file_signature(extension: str, payload: bytes) -> bool:
         return True
 
     return False
+
+
+def scan_for_malware(payload: bytes) -> tuple[bool, str]:
+    if EICAR_TEST_SIGNATURE in payload:
+        return False, "Uploaded file matched a malware test signature."
+
+    return True, "File passed malware scanning."
 
 
 def apply_security_headers(response):

@@ -34,6 +34,28 @@ def test_upload_rejects_content_signature_mismatch(client, login_as):
     assert b"Uploaded file contents do not match the selected file type." in response.data
 
 
+def test_upload_rejects_eicar_test_signature(client, login_as):
+    login_as("alice")
+
+    response = client.post(
+        "/upload",
+        data={
+            "title": "Suspicious File",
+            "document": (
+                BytesIO(
+                    b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$"
+                    b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+                ),
+                "eicar.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert b"Uploaded file matched a malware test signature." in response.data
+
+
 def test_upload_encrypts_file_and_download_restores_plaintext(client, flask_app, login_as):
     login_as("alice")
     plaintext = b"Top secret launch plan"
