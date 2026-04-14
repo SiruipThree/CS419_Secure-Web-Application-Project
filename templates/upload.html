@@ -20,6 +20,7 @@
   </p>
   {% endif %}
   <form class="form-grid" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>
       Document Title
       <input type="text" name="title" value="{{ title_value }}">

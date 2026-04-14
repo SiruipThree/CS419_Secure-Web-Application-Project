@@ -35,3 +35,20 @@ def test_validate_url_rejects_private_or_unsafe_urls():
     assert validate_url("https://localhost:8443")[0] is False
     assert validate_url("https://192.168.1.10/admin")[0] is False
     assert validate_url("https://user:pass@example.com")[0] is False
+
+
+def test_security_headers_include_all_required_headers(client):
+    response = client.get("/")
+    headers = response.headers
+
+    assert "Content-Security-Policy" in headers
+    csp = headers["Content-Security-Policy"]
+    assert "default-src 'self'" in csp
+    assert "connect-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+    assert headers["X-Frame-Options"] == "DENY"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["X-XSS-Protection"] == "1; mode=block"
+    assert "strict-origin-when-cross-origin" in headers["Referrer-Policy"]
+    assert "geolocation=()" in headers["Permissions-Policy"]

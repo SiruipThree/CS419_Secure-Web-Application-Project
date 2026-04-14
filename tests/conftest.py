@@ -101,6 +101,17 @@ def login_as(client, make_user):
 
 
 @pytest.fixture()
+def csrf_token(flask_app):
+    """Return the CSRF token for the current (most recent) session."""
+    def _csrf_token():
+        sessions = load_json(flask_app.config["SESSIONS_FILE"], {})
+        if not sessions:
+            return ""
+        return next(iter(sessions.values())).get("csrf_token", "")
+    return _csrf_token
+
+
+@pytest.fixture()
 def grant_share(flask_app):
     def _grant_share(document_id: str, principal: str, role: str):
         shares = load_json(flask_app.config["SHARES_FILE"], [])

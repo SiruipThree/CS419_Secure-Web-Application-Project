@@ -1,8 +1,17 @@
 import json
 from io import BytesIO
 
+from secure_app.storage import load_json
 
-def test_upload_rejects_invalid_extension(client, login_as):
+
+def _get_csrf(flask_app):
+    sessions = load_json(flask_app.config["SESSIONS_FILE"], {})
+    if not sessions:
+        return ""
+    return next(iter(sessions.values())).get("csrf_token", "")
+
+
+def test_upload_rejects_invalid_extension(client, flask_app, login_as):
     login_as("alice")
 
     response = client.post(
@@ -10,6 +19,7 @@ def test_upload_rejects_invalid_extension(client, login_as):
         data={
             "title": "Quarterly Plan",
             "document": (BytesIO(b"malicious payload"), "../../payload.exe"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
@@ -18,7 +28,7 @@ def test_upload_rejects_invalid_extension(client, login_as):
     assert b"File type is not allowed." in response.data
 
 
-def test_upload_rejects_content_signature_mismatch(client, login_as):
+def test_upload_rejects_content_signature_mismatch(client, flask_app, login_as):
     login_as("alice")
 
     response = client.post(
@@ -26,6 +36,7 @@ def test_upload_rejects_content_signature_mismatch(client, login_as):
         data={
             "title": "Fake PDF",
             "document": (BytesIO(b"not a pdf"), "report.pdf"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
@@ -34,7 +45,7 @@ def test_upload_rejects_content_signature_mismatch(client, login_as):
     assert b"Uploaded file contents do not match the selected file type." in response.data
 
 
-def test_upload_rejects_eicar_test_signature(client, login_as):
+def test_upload_rejects_eicar_test_signature(client, flask_app, login_as):
     login_as("alice")
 
     response = client.post(
@@ -48,6 +59,7 @@ def test_upload_rejects_eicar_test_signature(client, login_as):
                 ),
                 "eicar.txt",
             ),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
@@ -65,6 +77,7 @@ def test_upload_encrypts_file_and_download_restores_plaintext(client, flask_app,
         data={
             "title": "Launch Plan",
             "document": (BytesIO(plaintext), "launch-plan.txt"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
@@ -103,6 +116,7 @@ def test_upload_too_large_returns_413(client, flask_app, login_as):
         data={
             "title": "Large File",
             "document": (BytesIO(b"a" * 512), "large.txt"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )

@@ -12,6 +12,14 @@ from secure_app.access_control import (
     can_view_document,
     can_view_shared_content,
 )
+from secure_app.storage import load_json
+
+
+def _get_csrf(flask_app):
+    sessions = load_json(flask_app.config["SESSIONS_FILE"], {})
+    if not sessions:
+        return ""
+    return next(iter(sessions.values())).get("csrf_token", "")
 
 
 def test_permission_matrix_matches_admin_user_guest_roles():
@@ -95,13 +103,14 @@ def test_admin_can_access_admin_console_and_download_any_document(
         data={
             "title": "Admin Review",
             "document": (BytesIO(b"roadmap"), "roadmap.txt"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
     assert upload_response.status_code == 200
 
     document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
-    client.post("/logout")
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
 
     login_as("root_admin", role="admin")
 
@@ -125,13 +134,14 @@ def test_user_cannot_download_another_users_document_without_share(
         data={
             "title": "Private Plan",
             "document": (BytesIO(b"classified"), "plan.txt"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
     assert upload_response.status_code == 200
 
     document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
-    client.post("/logout")
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
 
     login_as("other_user")
     download_response = client.get(f"/documents/{document['id']}/download")
@@ -151,6 +161,7 @@ def test_guest_can_download_document_shared_to_guest(
         data={
             "title": "Public Handout",
             "document": (BytesIO(b"share me"), "handout.txt"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
@@ -158,7 +169,7 @@ def test_guest_can_download_document_shared_to_guest(
 
     document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
     grant_share(document["id"], "guest", "viewer")
-    client.post("/logout")
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
 
     login_as("visitor", role="guest")
     shared_response = client.get("/shared")
@@ -181,13 +192,14 @@ def test_unauthenticated_download_redirects_to_login(
         data={
             "title": "Private Handout",
             "document": (BytesIO(b"download me"), "handout.txt"),
+            "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
     )
     assert upload_response.status_code == 200
 
     document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
-    client.post("/logout")
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
 
     download_response = client.get(f"/documents/{document['id']}/download")
 

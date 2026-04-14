@@ -30,7 +30,12 @@ from secure_app.documents import (
 )
 from secure_app.logging_utils import configure_app_logging, security_log
 from secure_app.security import apply_security_headers
-from secure_app.sessions import create_session, get_session, invalidate_session
+from secure_app.sessions import (
+    create_session,
+    get_session,
+    invalidate_session,
+    invalidate_user_sessions,
+)
 from secure_app.storage import bootstrap_storage
 
 
@@ -155,9 +160,36 @@ def create_app() -> Flask:
         }
         return None
 
+    @app.before_request
+    def enforce_csrf():
+        if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+            return None
+        if request.path == "/login" or request.path == "/register":
+            return None
+
+        session_token = request.cookies.get(app.config["SESSION_COOKIE_NAME"])
+        session_data = get_session(app.config, session_token) if session_token else None
+        if session_data is None:
+            return None
+
+        expected = session_data.get("csrf_token", "")
+        submitted = request.form.get("csrf_token", "")
+        if not expected or not submitted or expected != submitted:
+            security_log.log_event(
+                "CSRF_VALIDATION_FAILED",
+                session_data.get("user_id"),
+                {"path": request.path},
+                severity="WARNING",
+            )
+            abort(403)
+        return None
+
     @app.context_processor
     def inject_current_user():
-        return {"current_user": current_user()}
+        session_token = request.cookies.get(app.config["SESSION_COOKIE_NAME"])
+        session_data = get_session(app.config, session_token) if session_token else None
+        csrf_token = session_data.get("csrf_token", "") if session_data else ""
+        return {"current_user": current_user(), "csrf_token": csrf_token}
 
     @app.after_request
     def set_headers(response):
