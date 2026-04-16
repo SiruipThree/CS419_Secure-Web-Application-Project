@@ -1,7 +1,7 @@
 def test_homepage_loads(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert b"Secure Document Sharing System" in response.data
+    assert b"CypherShield" in response.data
 
 
 def test_security_headers_are_set(client):
@@ -23,5 +23,5 @@ def test_http_is_redirected_to_https_when_enabled(client, flask_app):
 
     response = client.get("/", base_url="http://localhost", follow_redirects=False)
 
-    assert response.status_code == 307
+    assert response.status_code == 301
     assert response.headers["Location"] == "https://localhost/"

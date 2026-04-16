@@ -16,5 +16,14 @@
     "role": "user",
     "failed_attempts": 0,
     "locked_until": null
+  },
+  "liamtest": {
+    "username": "liamtest",
+    "email": "test1@test1.com",
+    "password_hash": "$2b$12$vu4nCcqrC/bakq2PQRUy2OHe0AMhjxcO52tdWivPvlvSQGgnAGL76",
+    "created_at": 1776357790.7776792,
+    "role": "user",
+    "failed_attempts": 0,
+    "locked_until": null
   }
 }

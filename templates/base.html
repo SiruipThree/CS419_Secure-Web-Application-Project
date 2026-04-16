@@ -3,16 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Secure Document Sharing{% endblock %}</title>
+    <title>{% block title %}CypherShield{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   </head>
   <body>
     <header class="site-header">
       <div class="shell nav-row">
-        <a class="brand" href="{{ url_for('index') }}">SecureShare</a>
+        <a class="brand" href="{{ url_for('index') }}">CypherShield</a>
         <nav class="nav-links">
           <a href="{{ url_for('index') }}">Home</a>
-          <a href="{{ url_for('shared') }}">Shared</a>
+          {% if current_user.is_authenticated %}
+          <a href="{{ url_for('documents') }}">Documents</a>
+          {% endif %}
           {% if current_user.role in ['admin', 'user'] %}
           <a href="{{ url_for('dashboard') }}">Dashboard</a>
           <a href="{{ url_for('upload') }}">Upload</a>
@@ -21,7 +23,7 @@
           <a href="{{ url_for('admin') }}">Admin</a>
           {% endif %}
           {% if current_user.is_authenticated %}
-          <span>{{ current_user.username }} ({{ current_user.role }})</span>
+          <span class="nav-user-badge">{{ current_user.username }} ({{ current_user.role }})</span>
           <form method="post" action="{{ url_for('logout') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button button-secondary" type="submit">Logout</button>
@@ -40,7 +42,7 @@
 
     <footer class="site-footer">
       <div class="shell">
-        <p>CS 419 secure document sharing scaffold.</p>
+        <p>CypherShield secure document workspace.</p>
       </div>
     </footer>
 

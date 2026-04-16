@@ -32,7 +32,6 @@ class Config:
     ALLOWED_EXTENSIONS = {
         "pdf",
         "txt",
-        "doc",
         "docx",
         "png",
         "jpg",
@@ -41,13 +40,20 @@ class Config:
     ALLOWED_MIME_TYPES = {
         "pdf": {"application/pdf"},
         "txt": {"text/plain"},
-        "doc": {"application/msword"},
         "docx": {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         },
         "png": {"image/png"},
         "jpg": {"image/jpeg"},
         "jpeg": {"image/jpeg"},
+    }
+    DOCUMENT_TYPE_LABELS = {
+        "pdf": "PDF document (.pdf)",
+        "txt": "Text document (.txt)",
+        "docx": "Word document (.docx)",
+        "png": "PNG image (.png)",
+        "jpg": "JPEG image (.jpg)",
+        "jpeg": "JPEG image (.jpeg)",
     }
 
     DATA_DIR = BASE_DIR / "data"

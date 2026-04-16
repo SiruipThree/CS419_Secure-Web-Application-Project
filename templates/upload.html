@@ -3,27 +3,45 @@
 {% block title %}Upload{% endblock %}
 
 {% block content %}
-<section class="panel">
+<section class="panel content-panel">
   <h1>Upload Document</h1>
-  <p>Use this route for encrypted upload and version creation.</p>
+  <p class="panel-subtitle">Upload a new encrypted document version. Metadata and file validation are enforced before storage.</p>
   {% if error %}
-  <p>{{ error }}</p>
+  <div class="status-banner status-error">
+    <strong>Upload failed</strong>
+    {{ error }}
+  </div>
   {% endif %}
   {% if success %}
-  <p>{{ success }}</p>
+  <div class="status-banner status-success">
+    <strong>Upload complete</strong>
+    {{ success }}
+  </div>
   {% endif %}
   {% if uploaded_document %}
-  <p>
+  <div class="status-banner">
+    <strong>Next step</strong>
     <a href="{{ url_for('download_document', document_id=uploaded_document.id) }}">
       Download the decrypted copy
     </a>
-  </p>
+  </div>
   {% endif %}
   <form class="form-grid" method="post" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>
       Document Title
       <input type="text" name="title" value="{{ title_value }}">
+    </label>
+    <label class="form-field-compact">
+      Document Type
+      <select name="document_type" required>
+        <option value="">Select a document type</option>
+        {% for option in document_type_options %}
+        <option value="{{ option.value }}" {% if document_type_value == option.value %}selected{% endif %}>
+          {{ option.label }}
+        </option>
+        {% endfor %}
+      </select>
     </label>
     <label>
       File

@@ -3,11 +3,14 @@
 {% block title %}Register{% endblock %}
 
 {% block content %}
-<section class="panel">
+<section class="panel auth-panel">
   <h1>Create Account</h1>
-  <p>Registration form scaffold aligned with the assignment password policy.</p>
+  <p class="panel-subtitle">Create a secure account to upload, share, and manage confidential documents.</p>
   {% if error %}
-  <p>{{ error }}</p>
+  <div class="status-banner status-error">
+    <strong>Registration failed</strong>
+    {{ error }}
+  </div>
   {% endif %}
   <form class="form-grid" method="post">
     <label>

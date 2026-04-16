@@ -150,6 +150,7 @@ def safe_file_path(filename: str, base_dir: str | Path) -> Path:
 
 def validate_uploaded_file(
     filename: str,
+    selected_file_type: str | None,
     content_type: str | None,
     payload: bytes,
     allowed_extensions: Iterable[str],
@@ -158,14 +159,26 @@ def validate_uploaded_file(
     if not filename:
         return False, "Select a file to upload.", ""
 
+    normalized_selected_type = (selected_file_type or "").strip().lower()
+
+    if not normalized_selected_type:
+        return False, "Select a document type.", ""
+
+    if normalized_selected_type not in allowed_extensions:
+        return False, "Selected document type is not allowed.", ""
+
     if not allowed_file(filename, allowed_extensions):
         return False, "File type is not allowed.", ""
 
     cleaned_name = safe_upload_name(filename)
     extension = cleaned_name.rsplit(".", 1)[1].lower()
+    if extension != normalized_selected_type:
+        return False, "Uploaded file extension does not match the selected document type.", ""
+
     normalized_content_type = (content_type or "").split(";", 1)[0].strip().lower()
     accepted_mime_types = {
-        mime_type.lower() for mime_type in allowed_mime_types.get(extension, set())
+        mime_type.lower()
+        for mime_type in allowed_mime_types.get(normalized_selected_type, set())
     }
 
     if (
@@ -176,7 +189,7 @@ def validate_uploaded_file(
     ):
         return False, "Uploaded file content type is not allowed.", ""
 
-    if not matches_file_signature(extension, payload):
+    if not matches_file_signature(normalized_selected_type, payload):
         return False, "Uploaded file contents do not match the selected file type.", ""
 
     is_clean, scan_message = scan_for_malware(payload)
@@ -198,9 +211,6 @@ def matches_file_signature(extension: str, payload: bytes) -> bool:
 
     if extension == "png":
         return payload.startswith(b"\x89PNG\r\n\x1a\n")
-
-    if extension == "doc":
-        return payload.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
 
     if extension == "docx":
         if not payload.startswith(b"PK"):

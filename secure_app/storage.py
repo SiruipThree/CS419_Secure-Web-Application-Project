@@ -1,4 +1,5 @@
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -40,4 +41,13 @@ def load_json(path: Path, default_value: Any) -> Any:
 
 def save_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    serialized = json.dumps(payload, indent=2)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        delete=False,
+    ) as temp_file:
+        temp_file.write(serialized)
+        temp_path = Path(temp_file.name)
+    temp_path.replace(path)

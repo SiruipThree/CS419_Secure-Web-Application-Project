@@ -113,12 +113,16 @@ def can_edit_document(system_role: str, document_role: str | None) -> bool:
         return True
     if not can_edit_own_content(system_role):
         return False
+    return normalize_document_role(document_role) in {"owner", "editor"}
+
+
+def can_download_document(system_role: str, document_role: str | None) -> bool:
+    if not is_authenticated(system_role):
+        return False
     return normalize_document_role(document_role) == "owner"
 
 
 def can_delete_document(system_role: str, document_role: str | None) -> bool:
-    if can_view_all_content(system_role):
-        return True
     if not can_delete_own_content(system_role):
         return False
     return normalize_document_role(document_role) == "owner"

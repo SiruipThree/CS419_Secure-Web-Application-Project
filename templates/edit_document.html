@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Document{% endblock %}
+
+{% block content %}
+<section class="panel content-panel">
+  <h1>Edit Document</h1>
+  <p class="panel-subtitle">Update the title and, for text documents, the file contents directly in the site.</p>
+  {% if error %}
+  <div class="status-banner status-error">
+    <strong>Save failed</strong>
+    {{ error }}
+  </div>
+  {% endif %}
+  {% if success %}
+  <div class="status-banner status-success">
+    <strong>Changes saved</strong>
+    {{ success }}
+  </div>
+  {% endif %}
+  <p class="section-note">
+    Editing <strong>{{ document.filename }}</strong>, version {{ document.version }}.
+  </p>
+  <form class="form-grid" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Document Title
+      <input type="text" name="title" value="{{ title_value }}">
+    </label>
+    {% if can_edit_content %}
+    <label>
+      Document Content
+      <textarea class="editor-textarea" name="content">{{ content_value }}</textarea>
+    </label>
+    {% else %}
+    <p>Inline content editing is currently available only for text documents.</p>
+    {% endif %}
+    <button class="button" type="submit">Save Changes</button>
+  </form>
+</section>
+{% endblock %}

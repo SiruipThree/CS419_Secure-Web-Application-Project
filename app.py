@@ -18,15 +18,30 @@ from secure_app.access_control import (
     can_create_content,
     can_manage_users,
     can_view_all_content,
+    can_view_shared_content,
     normalize_system_role,
 )
 from secure_app.auth import UserAuth
 from secure_app.documents import (
+    authorize_document_share_management,
+    authorize_document_access,
+    authorize_owned_document_edit,
+    build_document_preview,
     decrypt_document,
+    document_supports_inline_editing,
+    load_editable_document_content,
+    load_document_plaintext,
+    list_document_shares,
+    list_outbound_document_shares,
+    list_owned_documents,
+    list_visible_documents,
     list_recent_documents,
     list_shared_documents,
     load_recent_audit_events,
+    permanently_delete_document,
+    share_document_with_user,
     store_encrypted_document,
+    update_document_content,
 )
 from secure_app.logging_utils import configure_app_logging, security_log
 from secure_app.security import apply_security_headers
@@ -125,13 +140,10 @@ def create_app() -> Flask:
 
     @app.before_request
     def require_https():
-        if not app.config["FORCE_HTTPS"]:
-            return None
-        if _request_is_secure():
-            return None
-
-        secure_url = request.url.replace("http://", "https://", 1)
-        return redirect(secure_url, code=307)
+        if app.config["FORCE_HTTPS"] and not _request_is_secure():
+            secure_url = request.url.replace("http://", "https://", 1)
+            return redirect(secure_url, code=301)
+        return None
 
     @app.before_request
     def load_current_user():
@@ -207,7 +219,7 @@ def create_app() -> Flask:
             destination = (
                 url_for("dashboard")
                 if can_access_dashboard(current_user()["role"])
-                else url_for("shared")
+                else url_for("documents")
             )
             return redirect(destination)
 
@@ -232,7 +244,7 @@ def create_app() -> Flask:
                 destination = (
                     url_for("dashboard")
                     if can_access_dashboard(result["role"])
-                    else url_for("shared")
+                    else url_for("documents")
                 )
                 response = redirect(destination)
                 return _set_session_cookie(response, app, session_token)
@@ -248,7 +260,7 @@ def create_app() -> Flask:
             destination = (
                 url_for("dashboard")
                 if can_access_dashboard(current_user()["role"])
-                else url_for("shared")
+                else url_for("documents")
             )
             return redirect(destination)
 
@@ -312,11 +324,22 @@ def create_app() -> Flask:
     @require_auth
     @require_role(can_create_content, "document_upload")
     def upload():
-        context = {"title_value": ""}
+        context = {
+            "title_value": "",
+            "document_type_value": "",
+            "document_type_options": [
+                {
+                    "value": extension,
+                    "label": app.config["DOCUMENT_TYPE_LABELS"].get(extension, extension.upper()),
+                }
+                for extension in sorted(app.config["ALLOWED_EXTENSIONS"])
+            ],
+        }
         status_code = 200
 
         if request.method == "POST":
             context["title_value"] = request.form.get("title", "")
+            context["document_type_value"] = request.form.get("document_type", "")
             uploaded_file = request.files.get("document")
 
             try:
@@ -326,6 +349,7 @@ def create_app() -> Flask:
                 uploaded_document = store_encrypted_document(
                     app.config,
                     context["title_value"],
+                    context["document_type_value"],
                     uploaded_file,
                     owner=current_user()["username"],
                 )
@@ -340,6 +364,62 @@ def create_app() -> Flask:
                 context["uploaded_document"] = uploaded_document
 
         return render_template("upload.html", **context), status_code
+
+    @app.route("/documents/<document_id>/edit", methods=["GET", "POST"])
+    @require_auth
+    def edit_document(document_id: str):
+        user = current_user()
+
+        try:
+            editable_document = authorize_owned_document_edit(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        context = {
+            "document": editable_document,
+            "title_value": editable_document["title"],
+            "content_value": "",
+            "can_edit_content": False,
+        }
+        status_code = 200
+        plaintext = load_document_plaintext(
+            app.config,
+            editable_document,
+            user_id=user["username"],
+        )
+        context["can_edit_content"] = document_supports_inline_editing(editable_document)
+        context["content_value"] = load_editable_document_content(
+            editable_document,
+            plaintext,
+        )
+
+        if request.method == "POST":
+            context["title_value"] = request.form.get("title", "")
+            context["content_value"] = request.form.get("content", "")
+            try:
+                editable_document = update_document_content(
+                    app.config,
+                    document_id,
+                    context["title_value"],
+                    context["content_value"],
+                    user_id=user["username"],
+                    system_role=user["role"],
+                )
+            except ValueError as exc:
+                context["error"] = str(exc)
+                status_code = 400
+            else:
+                context["document"] = editable_document
+                context["success"] = "Document details updated successfully."
+
+        return render_template("edit_document.html", **context), status_code
 
     @app.route("/documents/<document_id>/download")
     @require_auth
@@ -365,18 +445,189 @@ def create_app() -> Flask:
             mimetype=document["content_type"],
         )
 
-    @app.route("/shared")
+    @app.route("/documents/<document_id>/delete", methods=["POST"])
     @require_auth
-    def shared():
+    def delete_document(document_id: str):
         user = current_user()
-        return render_template(
-            "shared.html",
-            shared_documents=list_shared_documents(
+
+        try:
+            permanently_delete_document(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        return redirect(url_for("dashboard"))
+
+    @app.route("/documents")
+    @require_auth
+    @require_role(can_view_shared_content, "document_browse")
+    def documents():
+        user = current_user()
+        if can_view_all_content(user["role"]):
+            available_documents = list_visible_documents(
                 app.config,
                 user_id=user["username"],
                 system_role=user["role"],
+            )
+            shared_with_you = []
+        else:
+            owned_documents = list_owned_documents(
+                app.config,
+                owner=user["username"],
+                limit=50,
+            )
+            shared_with_you = list_shared_documents(
+                app.config,
+                user_id=user["username"],
+                system_role=user["role"],
+                limit=50,
+            )
+            available_documents = owned_documents + shared_with_you
+        return render_template(
+            "documents.html",
+            available_documents=available_documents,
+            shared_with_you=shared_with_you,
+            shared_with_others=list_outbound_document_shares(
+                app.config,
+                owner=user["username"],
+            ),
+            page_title="All Documents" if can_view_all_content(user["role"]) else "Documents",
+            page_description=(
+                "Admin accounts can browse all uploaded documents."
+                if can_view_all_content(user["role"])
+                else "This page shows the documents you own, the ones shared with you, and the ones you have shared with others."
             ),
         )
+
+    @app.route("/documents/<document_id>/preview")
+    @require_auth
+    @require_role(can_view_shared_content, "document_preview")
+    def preview_document(document_id: str):
+        user = current_user()
+
+        try:
+            document, document_role = authorize_document_access(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+            plaintext = load_document_plaintext(
+                app.config,
+                document,
+                user_id=user["username"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        can_manage_shares = False
+        can_return_to_owner = document_role == "editor"
+        try:
+            authorize_document_share_management(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+        except (FileNotFoundError, PermissionError):
+            pass
+        else:
+            can_manage_shares = True
+
+        return render_template(
+            "document_preview.html",
+            document=document,
+            preview=build_document_preview(document, plaintext),
+            can_download=document.get("owner") == user["username"],
+            can_edit=document_supports_inline_editing(document)
+            and document_role in {"owner", "editor"},
+            can_manage_shares=can_manage_shares,
+            can_return_to_owner=can_return_to_owner,
+            share_target_value="",
+            share_role_value="viewer",
+            share_entries=list_document_shares(app.config, document_id)
+            if can_manage_shares
+            else [],
+        )
+
+    @app.route("/documents/<document_id>/share", methods=["POST"])
+    @require_auth
+    def share_document(document_id: str):
+        user = current_user()
+        share_target_value = request.form.get("recipient_username", "")
+        share_role_value = request.form.get("access_role", "viewer")
+
+        try:
+            document, document_role = authorize_document_access(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+            plaintext = load_document_plaintext(
+                app.config,
+                document,
+                user_id=user["username"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        context = {
+            "document": document,
+            "preview": build_document_preview(document, plaintext),
+            "can_download": document.get("owner") == user["username"],
+            "can_edit": document_supports_inline_editing(document)
+            and document_role in {"owner", "editor"},
+            "can_manage_shares": document_role == "owner" or user["role"] == "admin",
+            "can_return_to_owner": document_role == "editor",
+            "share_target_value": share_target_value,
+            "share_role_value": share_role_value,
+            "share_entries": list_document_shares(app.config, document_id),
+        }
+
+        recipient = auth_service().get_user(share_target_value.strip())
+        if recipient is None:
+            context["share_error"] = "Recipient username was not found."
+            return render_template("document_preview.html", **context), 400
+
+        try:
+            share_document_with_user(
+                app.config,
+                document_id,
+                share_target_value,
+                share_role_value,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+        except ValueError as exc:
+            context["share_error"] = str(exc)
+            return render_template("document_preview.html", **context), 400
+
+        if document_role == "editor" and recipient["username"] == document["owner"]:
+            context["share_success"] = "Updated document returned to the owner."
+        else:
+            context["share_success"] = (
+                f"Document shared with {recipient['username']} as {share_role_value.strip().lower()}."
+            )
+        context["share_target_value"] = ""
+        context["share_role_value"] = "viewer"
+        context["share_entries"] = list_document_shares(app.config, document_id)
+        return render_template("document_preview.html", **context)
+
+    @app.route("/shared")
+    @require_auth
+    def shared():
+        return redirect(url_for("documents"))
 
     @app.route("/admin")
     @require_auth
@@ -418,4 +669,9 @@ if __name__ == "__main__":
             app.config["TLS_CERT_FILE"],
             app.config["TLS_KEY_FILE"],
         )
-    app.run(debug=app.config["DEBUG"], ssl_context=ssl_context)
+    app.run(
+        debug=app.config["DEBUG"],
+        ssl_context=ssl_context,
+        host="0.0.0.0",
+        port=5000,
+    )

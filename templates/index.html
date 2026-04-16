@@ -1,15 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}Project Overview{% endblock %}
+{% block title %}CypherShield{% endblock %}
 
 {% block content %}
 <section class="hero">
-  <p class="eyebrow">CS 419 Course Project</p>
-  <h1>Secure Document Sharing System</h1>
+  <p class="eyebrow">Protected Collaboration</p>
+  <h1>CypherShield</h1>
   <p class="lede">
-    This scaffold is structured around the assignment requirements: authentication,
-    access control, encryption, session management, security headers, logging,
-    and auditability.
+    A secure document workspace built for controlled sharing, encrypted storage,
+    audited access, and role-based collaboration.
   </p>
   <div class="button-row">
     <a class="button" href="{{ url_for('register') }}">Register</a>
@@ -20,15 +19,15 @@
 <section class="card-grid">
   <article class="card">
     <h2>Core Features</h2>
-    <p>User accounts, document upload, sharing, access control, and versioning.</p>
+    <p class="panel-subtitle">User accounts, document upload, sharing, access control, and versioning.</p>
   </article>
   <article class="card">
     <h2>Security Controls</h2>
-    <p>Password policy, secure sessions, encrypted storage, validation, and logs.</p>
+    <p class="panel-subtitle">Password policy, secure sessions, encrypted storage, validation, and logs.</p>
   </article>
   <article class="card">
     <h2>Deliverables</h2>
-    <p>Working app, design document, penetration test report, and presentation.</p>
+    <p class="panel-subtitle">Structured document workflows, controlled access, and clear audit visibility.</p>
   </article>
 </section>
 {% endblock %}

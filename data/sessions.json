@@ -1,8 +1,18 @@
 {
-  "UkAYCYKkWsUWLMRteZHeJDcLxaKtJaFBCWiCJYYacY8": {
+  "ty7VklGUHIfgLgAZ5QlQ0UEK4_Ev7Xn_cYXHarqORc8": {
+    "user_id": "liamtest",
+    "system_role": "user",
+    "created_at": 1776363226.9156082,
+    "last_activity": 1776364276.575667,
+    "expires_at": 1776366076.575667,
+    "csrf_token": "5MX5XG8uXJAECTfoyc11pbL_1uXNKz9J3IGdL9bjz98"
+  },
+  "85VIIhFANB52nZnUB2ZK62ibo9zkna87w6KUmIBlMxU": {
     "user_id": "12345678",
     "system_role": "user",
-    "created_at": 1775760619.380727,
-    "expires_at": 1775762419.380727
+    "created_at": 1776363893.194931,
+    "last_activity": 1776364477.917183,
+    "expires_at": 1776366277.917183,
+    "csrf_token": "jNl6WMnU3iz9NxrXOD6-TPowMy6KSlCGR-efX6HvXOw"
   }
 }

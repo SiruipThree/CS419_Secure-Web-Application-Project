@@ -5,44 +5,56 @@
 {% block content %}
 <section class="panel">
   <h1>Admin Console</h1>
-  <p>Reserved for user management, system metrics, and security event review.</p>
+  <p class="panel-subtitle">Reserved for user management, system metrics, and security event review.</p>
 </section>
 
 <section class="card-grid">
   <article class="card">
     <h2>Users</h2>
     {% if users %}
-    <ul>
+    <ul class="stack-list">
       {% for user in users %}
-      <li>{{ user.username }} - {{ user.role }} - {{ user.email }}</li>
+      <li class="stack-item">{{ user.username }} - {{ user.role }} - {{ user.email }}</li>
       {% endfor %}
     </ul>
     {% else %}
-    <p>No users found.</p>
+    <p class="empty-state">No users found.</p>
     {% endif %}
   </article>
   <article class="card">
     <h2>Recent Documents</h2>
     {% if recent_documents %}
-    <ul>
+    <ul class="document-list">
       {% for document in recent_documents %}
-      <li>{{ document.title }} v{{ document.version }} by {{ document.owner }}</li>
+      <li class="document-item">
+        <div class="document-head">
+          <span class="document-title">{{ document.title }}</span>
+          <span class="tag">v{{ document.version }}</span>
+        </div>
+        <div class="document-meta">
+          <span>Owner: {{ document.owner }}</span>
+        </div>
+        <div class="document-actions">
+          <a class="text-link" href="{{ url_for('preview_document', document_id=document.id) }}">view</a>
+          <a class="text-link" href="{{ url_for('documents') }}">view all</a>
+        </div>
+      </li>
       {% endfor %}
     </ul>
     {% else %}
-    <p>No documents uploaded yet.</p>
+    <p class="empty-state">No documents uploaded yet.</p>
     {% endif %}
   </article>
   <article class="card">
     <h2>Audit Trail</h2>
     {% if recent_audit_events %}
-    <ul>
+    <ul class="stack-list">
       {% for event in recent_audit_events %}
-      <li>{{ event.event_type }} by {{ event.user_id }} at {{ event.timestamp }}</li>
+      <li class="stack-item">{{ event.event_type }} by {{ event.user_id }} at {{ event.timestamp }}</li>
       {% endfor %}
     </ul>
     {% else %}
-    <p>No audit events recorded yet.</p>
+    <p class="empty-state">No audit events recorded yet.</p>
     {% endif %}
   </article>
 </section>

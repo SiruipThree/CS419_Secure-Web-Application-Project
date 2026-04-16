@@ -3,11 +3,14 @@
 {% block title %}Login{% endblock %}
 
 {% block content %}
-<section class="panel">
+<section class="panel auth-panel">
   <h1>Login</h1>
-  <p>Starter page for secure authentication with lockout and rate limiting.</p>
+  <p class="panel-subtitle">Secure sign-in with rate limiting, account lockout, and session protections.</p>
   {% if error %}
-  <p>{{ error }}</p>
+  <div class="status-banner status-error">
+    <strong>Sign-in failed</strong>
+    {{ error }}
+  </div>
   {% endif %}
   <form class="form-grid" method="post">
     <label>

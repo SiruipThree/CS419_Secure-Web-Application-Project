@@ -129,6 +129,7 @@ def test_csrf_token_accepted_for_upload(client, flask_app, login_as):
         "/upload",
         data={
             "title": "Test Doc",
+            "document_type": "txt",
             "document": (BytesIO(b"hello world"), "test.txt"),
             "csrf_token": csrf_token,
         },
