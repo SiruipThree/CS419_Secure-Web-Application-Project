@@ -309,5 +309,15 @@
       "document_id": "3qsx9psKhEm6p1ga1C4Obg",
       "title": "NotesEditv3"
     }
+  },
+  {
+    "timestamp": "2026-04-16T20:25:53.772734+00:00",
+    "event_type": "DOCUMENT_DELETE",
+    "user_id": "12345678",
+    "details": {
+      "document_id": "vvAF38cAoaJma8leQjPtPw",
+      "filename": "Dental_Insurance.pdf",
+      "title": "Insurance"
+    }
   }
 ]

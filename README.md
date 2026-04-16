@@ -50,18 +50,9 @@ pip install -r requirements.txt
 flask --app app.py --debug run
 ```
 
-## Implemented For Parts C And D
+## Admin Credentials
 
-1. Form and upload validation using whitelist rules, size limits, and file signature checks
-2. XSS-aware rendering using Jinja auto-escaping and explicit text sanitization helpers
-3. Path traversal prevention for stored document payloads
-4. Encrypted document storage at rest with generated Fernet key management
-5. HTTPS enforcement support and HSTS on secure requests
-6. Audit logging for document upload and download activity
+For testing/demo purposes only:
 
-## Remaining Priorities
-
-1. Add admin workflows for managing user roles and document sharing assignments
-2. Expand session hardening with logout-all, idle timeout refresh, and CSRF protections
-3. Build the remaining document collaboration flows for editors and viewers
-4. Extend penetration test coverage and final course deliverables
+- **Username:** `test@test.com`
+- **Password:** `#Adminpassword1`

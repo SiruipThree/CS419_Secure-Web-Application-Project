@@ -7,12 +7,20 @@
     "expires_at": 1776366076.575667,
     "csrf_token": "5MX5XG8uXJAECTfoyc11pbL_1uXNKz9J3IGdL9bjz98"
   },
-  "85VIIhFANB52nZnUB2ZK62ibo9zkna87w6KUmIBlMxU": {
+  "-r2NJjss5ymrVocEoyeFcvvHu8KsJpYNYUW5g9GsQfc": {
+    "user_id": "liamhughes",
+    "system_role": "admin",
+    "created_at": 1776365717.693505,
+    "last_activity": 1776366056.580148,
+    "expires_at": 1776367856.580148,
+    "csrf_token": "fAmnoGcQm-GfQfKH38beVCqppFKN4KAasuFlNr7NLdo"
+  },
+  "XqUdjkrZbyfwD0zarUTlujMOkqxY2ntQef4KqKb1y8k": {
     "user_id": "12345678",
     "system_role": "user",
-    "created_at": 1776363893.194931,
-    "last_activity": 1776364477.917183,
-    "expires_at": 1776366277.917183,
-    "csrf_token": "jNl6WMnU3iz9NxrXOD6-TPowMy6KSlCGR-efX6HvXOw"
+    "created_at": 1776370173.882894,
+    "last_activity": 1776371184.8289459,
+    "expires_at": 1776372984.8289459,
+    "csrf_token": "n5oVl6tE0EEdbBpCQS3pij34WqOuDC2TsTXDGU8qYUw"
   }
 }

@@ -3,7 +3,7 @@
 {% block title %}Preview Document{% endblock %}
 
 {% block content %}
-<section class="panel">
+<section class="panel preview-shell">
   <h1>{{ document.title }}</h1>
   <p class="panel-subtitle">
     Previewing <strong>{{ document.filename }}</strong> uploaded by
@@ -23,43 +23,20 @@
     </form>
     {% endif %}
   </div>
-</section>
-
-<section class="card-grid">
-  <article class="card">
-    <h2>Document Details</h2>
-    <div class="key-value">
-      <span class="key-label">Version</span>
-      <strong>{{ document.version }}</strong>
-    </div>
-    <div class="key-value">
-      <span class="key-label">Type</span>
-      <strong>{{ document.document_type|upper if document.document_type else "Unknown" }}</strong>
-    </div>
-    <div class="key-value">
-      <span class="key-label">Size</span>
-      <strong>{{ document.size_bytes }} bytes</strong>
-    </div>
-    <div class="key-value">
-      <span class="key-label">Updated</span>
-      <strong>{{ document.updated_at }}</strong>
-    </div>
-  </article>
-  <article class="card preview-card">
-    <h2>View</h2>
+  <div class="preview-stage">
     {% if preview.kind != "beta" %}
     <p>{{ preview.message }}</p>
     {% endif %}
     {% if preview.kind == "text" %}
-    <div class="preview-scroll">
+    <div class="preview-scroll preview-scroll-condensed">
       <pre class="preview-text">{{ preview.content }}</pre>
     </div>
     {% elif preview.kind == "image" %}
-    <div class="preview-scroll">
+    <div class="preview-scroll preview-scroll-condensed">
       <img class="preview-image" src="{{ preview.embed_src }}" alt="Document view">
     </div>
     {% elif preview.kind == "pdf" %}
-    <div class="preview-scroll">
+    <div class="preview-scroll preview-scroll-condensed">
       <embed class="preview-embed" src="{{ preview.embed_src }}" type="application/pdf">
     </div>
     {% elif preview.kind == "beta" %}
@@ -67,9 +44,31 @@
     {% else %}
     <p>Download is available only to the document owner.</p>
     {% endif %}
+  </div>
+</section>
+
+<section class="card-grid preview-layout">
+  <article class="card detail-card">
+    <h2>Document Details</h2>
+    <div class="key-value">
+      <span class="key-label">Version</span>
+      <strong class="key-value-text">{{ document.version }}</strong>
+    </div>
+    <div class="key-value">
+      <span class="key-label">Type</span>
+      <strong class="key-value-text">{{ document.document_type|upper if document.document_type else "Unknown" }}</strong>
+    </div>
+    <div class="key-value">
+      <span class="key-label">Size</span>
+      <strong class="key-value-text">{{ document.size_bytes }} bytes</strong>
+    </div>
+    <div class="key-value">
+      <span class="key-label">Updated</span>
+      <strong class="key-value-text">{{ document.updated_at }}</strong>
+    </div>
   </article>
   {% if can_manage_shares or can_return_to_owner %}
-  <article class="card" id="share-panel">
+  <article class="card share-card" id="share-panel">
     <h2>Share Access</h2>
     {% if can_manage_shares %}
     <p>Enter an existing username and choose whether to grant viewer or editor access.</p>
@@ -88,20 +87,22 @@
       {{ share_success }}
     </div>
     {% endif %}
-    <form class="form-grid" method="post" action="{{ url_for('share_document', document_id=document.id) }}">
+    <form class="form-grid share-form" method="post" action="{{ url_for('share_document', document_id=document.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% if can_manage_shares %}
-      <label class="form-field-compact">
-        Recipient Username
-        <input type="text" name="recipient_username" value="{{ share_target_value }}">
-      </label>
-      <label class="form-field-compact">
-        Access Level
-        <select name="access_role" required>
-          <option value="viewer" {% if share_role_value == "viewer" %}selected{% endif %}>Viewer</option>
-          <option value="editor" {% if share_role_value == "editor" %}selected{% endif %}>Editor</option>
-        </select>
-      </label>
+      <div class="share-form-row">
+        <label class="form-field-compact share-form-primary">
+          Recipient Username
+          <input type="text" name="recipient_username" value="{{ share_target_value }}">
+        </label>
+        <label class="form-field-compact share-form-secondary">
+          Access Level
+          <select name="access_role" required>
+            <option value="viewer" {% if share_role_value == "viewer" %}selected{% endif %}>Viewer</option>
+            <option value="editor" {% if share_role_value == "editor" %}selected{% endif %}>Editor</option>
+          </select>
+        </label>
+      </div>
       <button class="button" type="submit">Share Access</button>
       {% else %}
       <input type="hidden" name="recipient_username" value="{{ document.owner }}">
@@ -110,6 +111,7 @@
       {% endif %}
     </form>
     {% if can_manage_shares %}
+    <div class="share-section-divider"></div>
     <h3>Current Shares</h3>
     {% if share_entries %}
     <ul class="stack-list">
