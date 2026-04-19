@@ -11,8 +11,18 @@ def _get_csrf(flask_app):
     return next(iter(sessions.values())).get("csrf_token", "")
 
 
+def _read_security_events(log_file):
+    events = []
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        events.append(json.loads(line.split(" - ", 2)[2]))
+    return events
+
+
 def test_upload_rejects_invalid_extension(client, flask_app, login_as):
     login_as("alice")
+    flask_app.config["SECURITY_LOG_FILE"].write_text("", encoding="utf-8")
 
     response = client.post(
         "/upload",
@@ -27,6 +37,14 @@ def test_upload_rejects_invalid_extension(client, flask_app, login_as):
 
     assert response.status_code == 400
     assert b"File type is not allowed." in response.data
+
+    events = _read_security_events(flask_app.config["SECURITY_LOG_FILE"])
+    assert any(
+        event["event_type"] == "UPLOAD_VALIDATION_FAILED"
+        and event["user_id"] == "alice"
+        and event["details"]["reason"] == "File type is not allowed."
+        for event in events
+    )
 
 
 def test_upload_rejects_legacy_doc_extension(client, flask_app, login_as):
@@ -408,15 +426,21 @@ def test_owner_can_share_document_with_editor_access(client, flask_app, login_as
     ]
 
 
-def test_pdf_preview_shows_beta_message(client, flask_app, login_as):
+def test_pdf_preview_is_available_inline_for_shared_user(
+    client,
+    flask_app,
+    login_as,
+    make_user,
+):
     login_as("alice")
+    make_user("bob")
 
     upload_response = client.post(
         "/upload",
         data={
-            "title": "Beta PDF",
+            "title": "Shared PDF",
             "document_type": "pdf",
-            "document": (BytesIO(b"%PDF-1.7\nbeta pdf"), "beta.pdf"),
+            "document": (BytesIO(b"%PDF-1.7\nshared pdf"), "shared.pdf"),
             "csrf_token": _get_csrf(flask_app),
         },
         content_type="multipart/form-data",
@@ -424,10 +448,32 @@ def test_pdf_preview_shows_beta_message(client, flask_app, login_as):
     assert upload_response.status_code == 200
 
     document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    share_response = client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "bob",
+            "access_role": "viewer",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+    assert share_response.status_code == 200
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+
+    login_response = client.post(
+        "/login",
+        data={"identifier": "bob", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+    assert login_response.status_code == 302
     preview_response = client.get(f"/documents/{document['id']}/preview")
+    inline_content_response = client.get(f"/documents/{document['id']}/preview/content")
 
     assert preview_response.status_code == 200
-    assert b"Previews are currently unavailable for PDF documents." in preview_response.data
+    assert b"Showing an inline PDF preview." in preview_response.data
+    assert f"/documents/{document['id']}/preview/content".encode("utf-8") in preview_response.data
+    assert inline_content_response.status_code == 200
+    assert inline_content_response.data == b"%PDF-1.7\nshared pdf"
+    assert inline_content_response.headers["Content-Type"].startswith("application/pdf")
 
 
 def test_owner_can_permanently_delete_document(client, flask_app, login_as, make_user):

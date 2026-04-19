@@ -259,6 +259,17 @@ def store_encrypted_document(
         title, config["DOCUMENT_TITLE_MAX_LENGTH"]
     )
     if not is_valid_title:
+        security_log.log_event(
+            "UPLOAD_VALIDATION_FAILED",
+            owner,
+            {
+                "reason": title_message,
+                "title": title,
+                "document_type": document_type,
+                "filename": uploaded_file.filename or "",
+            },
+            severity="WARNING",
+        )
         raise ValueError(title_message)
 
     is_valid_file, file_message, cleaned_name = validate_uploaded_file(
@@ -270,8 +281,30 @@ def store_encrypted_document(
         config["ALLOWED_MIME_TYPES"],
     )
     if not is_valid_file:
+        security_log.log_event(
+            "UPLOAD_VALIDATION_FAILED",
+            owner,
+            {
+                "reason": file_message,
+                "title": title.strip(),
+                "document_type": document_type,
+                "filename": uploaded_file.filename or "",
+            },
+            severity="WARNING",
+        )
         raise ValueError(file_message)
     if not plaintext:
+        security_log.log_event(
+            "UPLOAD_VALIDATION_FAILED",
+            owner,
+            {
+                "reason": "Uploaded file is empty.",
+                "title": title.strip(),
+                "document_type": document_type,
+                "filename": uploaded_file.filename or "",
+            },
+            severity="WARNING",
+        )
         raise ValueError("Uploaded file is empty.")
 
     cipher = _load_cipher(config)
@@ -504,8 +537,8 @@ def build_document_preview(document: dict, plaintext: bytes) -> dict:
         return preview
 
     if document_type == "pdf":
-        preview["kind"] = "beta"
-        preview["message"] = "Previews are currently unavailable for PDF documents."
+        preview["kind"] = "pdf"
+        preview["message"] = "Showing an inline PDF preview."
         return preview
 
     return preview

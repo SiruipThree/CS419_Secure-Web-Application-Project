@@ -5,7 +5,7 @@ from pathlib import Path
 
 import bcrypt
 
-from secure_app.access_control import normalize_system_role
+from secure_app.access_control import SYSTEM_ROLES, normalize_system_role
 from secure_app.logging_utils import security_log
 from secure_app.security import (
     validate_email,
@@ -91,14 +91,18 @@ class UserAuth:
 
     def list_users(self) -> list[dict]:
         users = []
+        now = time.time()
         for username, user in sorted(self._load_users().items()):
+            locked_until = user.get("locked_until")
             users.append(
                 {
                     "username": username,
                     "email": user.get("email", ""),
                     "role": normalize_system_role(user.get("role", "user")),
                     "created_at": user.get("created_at"),
-                    "locked_until": user.get("locked_until"),
+                    "failed_attempts": int(user.get("failed_attempts", 0)),
+                    "locked_until": locked_until,
+                    "is_locked": bool(locked_until and now < float(locked_until)),
                 }
             )
         return users
@@ -287,3 +291,89 @@ class UserAuth:
             details={"action": "User successfully updated their password"},
         )
         return {"success": "Password updated successfully."}
+
+    def update_role(
+        self,
+        username: str,
+        new_role: str,
+        *,
+        actor_username: str | None = None,
+    ):
+        users = self._load_users()
+        user = users.get(username)
+        if not user:
+            return {"error": "User not found."}
+
+        normalized_role = (new_role or "").strip().lower()
+        if normalized_role not in SYSTEM_ROLES:
+            return {"error": "Invalid role selection."}
+
+        previous_role = normalize_system_role(user.get("role", "user"))
+        if previous_role == normalized_role:
+            return {"success": True, "user": user}
+
+        user["role"] = normalized_role
+        users[username] = user
+        self._save_users(users)
+
+        security_log.log_event(
+            "USER_ROLE_CHANGED",
+            actor_username,
+            {
+                "target_user": username,
+                "previous_role": previous_role,
+                "new_role": normalized_role,
+            },
+        )
+        return {"success": True, "user": user}
+
+    def lock_user(
+        self,
+        username: str,
+        *,
+        duration_seconds: int = 15 * 60,
+        actor_username: str | None = None,
+    ):
+        users = self._load_users()
+        user = users.get(username)
+        if not user:
+            return {"error": "User not found."}
+
+        user["failed_attempts"] = max(int(user.get("failed_attempts", 0)), 5)
+        user["locked_until"] = time.time() + max(int(duration_seconds), 1)
+        users[username] = user
+        self._save_users(users)
+
+        security_log.log_event(
+            "ACCOUNT_LOCKED_BY_ADMIN",
+            actor_username,
+            {
+                "target_user": username,
+                "locked_until": user["locked_until"],
+            },
+            severity="WARNING",
+        )
+        return {"success": True, "user": user}
+
+    def unlock_user(
+        self,
+        username: str,
+        *,
+        actor_username: str | None = None,
+    ):
+        users = self._load_users()
+        user = users.get(username)
+        if not user:
+            return {"error": "User not found."}
+
+        user["failed_attempts"] = 0
+        user["locked_until"] = None
+        users[username] = user
+        self._save_users(users)
+
+        security_log.log_event(
+            "ACCOUNT_UNLOCKED_BY_ADMIN",
+            actor_username,
+            {"target_user": username},
+        )
+        return {"success": True, "user": user}

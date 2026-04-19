@@ -5,8 +5,17 @@
 {% block content %}
 <section class="panel">
   <h1>Admin Console</h1>
-  <p class="panel-subtitle">Reserved for user management, system metrics, and security event review.</p>
+  <p class="panel-subtitle">Manage user roles, lock or unlock accounts, and review recent document and audit activity.</p>
 </section>
+
+{% if status_message %}
+<section class="panel">
+  <div class="status-banner {% if status_category == 'error' %}status-error{% elif status_category == 'success' %}status-success{% endif %}">
+    <strong>Admin update</strong>
+    {{ status_message }}
+  </div>
+</section>
+{% endif %}
 
 <section class="card-grid">
   <article class="card">
@@ -14,7 +23,50 @@
     {% if users %}
     <ul class="stack-list">
       {% for user in users %}
-      <li class="stack-item">{{ user.username }} - {{ user.role }} - {{ user.email }}</li>
+      <li class="stack-item">
+        <div class="document-head">
+          <span class="document-title">{{ user.username }}</span>
+          <span class="tag">{{ user.role }}</span>
+          {% if user.is_locked %}
+          <span class="tag tag-accent">locked</span>
+          {% else %}
+          <span class="tag">active</span>
+          {% endif %}
+        </div>
+        <div class="document-meta">
+          <span>{{ user.email }}</span>
+          <span>Failed attempts: {{ user.failed_attempts }}</span>
+          {% if user.is_locked and user.locked_until %}
+          <span>Locked until: {{ user.locked_until }}</span>
+          {% endif %}
+        </div>
+        {% if user.username == current_user.username %}
+        <p class="section-note">Current admin session. Self role changes and self lock are disabled.</p>
+        {% else %}
+        <div class="document-actions">
+          <form class="inline-form" method="post" action="{{ url_for('admin_update_user_role', username=user.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select name="role" aria-label="Select role for {{ user.username }}">
+              {% for role in available_roles %}
+              <option value="{{ role }}" {% if role == user.role %}selected{% endif %}>{{ role }}</option>
+              {% endfor %}
+            </select>
+            <button class="button button-secondary" type="submit">Update role</button>
+          </form>
+          {% if user.is_locked %}
+          <form class="inline-form" method="post" action="{{ url_for('admin_unlock_user', username=user.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button" type="submit">Unlock</button>
+          </form>
+          {% else %}
+          <form class="inline-form" method="post" action="{{ url_for('admin_lock_user', username=user.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button button-danger" type="submit">Lock</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+      </li>
       {% endfor %}
     </ul>
     {% else %}

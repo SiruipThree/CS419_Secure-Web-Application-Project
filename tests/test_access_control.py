@@ -132,6 +132,63 @@ def test_admin_can_access_admin_console_and_view_any_document(
     assert download_response.status_code == 403
 
 
+def test_admin_can_update_user_role_from_console(client, flask_app, login_as, make_user):
+    make_user("managed_user", role="user")
+    login_as("root_admin", role="admin")
+
+    response = client.post(
+        "/admin/users/managed_user/role",
+        data={
+            "role": "guest",
+            "csrf_token": _get_csrf(flask_app),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/admin?" in response.headers["Location"]
+
+    users = load_json(flask_app.config["USERS_FILE"], {})
+    assert users["managed_user"]["role"] == "guest"
+
+    admin_page = client.get("/admin")
+    assert admin_page.status_code == 200
+    assert b"managed_user" in admin_page.data
+    assert b"guest" in admin_page.data
+
+
+def test_admin_can_lock_and_unlock_user_from_console(
+    client,
+    flask_app,
+    login_as,
+    make_user,
+):
+    make_user("managed_user", role="user")
+    login_as("root_admin", role="admin")
+
+    lock_response = client.post(
+        "/admin/users/managed_user/lock",
+        data={"csrf_token": _get_csrf(flask_app)},
+        follow_redirects=False,
+    )
+    assert lock_response.status_code == 302
+
+    users = load_json(flask_app.config["USERS_FILE"], {})
+    assert users["managed_user"]["locked_until"] is not None
+    assert users["managed_user"]["failed_attempts"] >= 5
+
+    unlock_response = client.post(
+        "/admin/users/managed_user/unlock",
+        data={"csrf_token": _get_csrf(flask_app)},
+        follow_redirects=False,
+    )
+    assert unlock_response.status_code == 302
+
+    users = load_json(flask_app.config["USERS_FILE"], {})
+    assert users["managed_user"]["locked_until"] is None
+    assert users["managed_user"]["failed_attempts"] == 0
+
+
 def test_admin_cannot_delete_document_they_do_not_own(client, flask_app, login_as):
     login_as("owner_user")
     upload_response = client.post(

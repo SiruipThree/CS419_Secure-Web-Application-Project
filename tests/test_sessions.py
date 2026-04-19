@@ -14,6 +14,15 @@ def _login(client, identifier: str, password: str):
     )
 
 
+def _read_security_events(log_file):
+    events = []
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        events.append(json.loads(line.split(" - ", 2)[2]))
+    return events
+
+
 def test_session_contains_last_activity_and_csrf_token(client, flask_app, make_user):
     make_user("alice")
     _login(client, "alice", "StrongPass!123")
@@ -105,6 +114,31 @@ def test_logout_destroys_session(client, flask_app, make_user):
 
     sessions_after = load_json(flask_app.config["SESSIONS_FILE"], {})
     assert len(sessions_after) == 0
+
+
+def test_session_creation_and_destruction_are_logged(client, flask_app, make_user):
+    make_user("alice")
+    flask_app.config["SECURITY_LOG_FILE"].write_text("", encoding="utf-8")
+
+    _login(client, "alice", "StrongPass!123")
+    sessions = load_json(flask_app.config["SESSIONS_FILE"], {})
+    csrf_token = next(iter(sessions.values()))["csrf_token"]
+
+    client.post("/logout", data={"csrf_token": csrf_token})
+
+    events = _read_security_events(flask_app.config["SECURITY_LOG_FILE"])
+    assert any(
+        event["event_type"] == "SESSION_CREATED"
+        and event["user_id"] == "alice"
+        and event["details"]["reason"] == "login"
+        for event in events
+    )
+    assert any(
+        event["event_type"] == "SESSION_DESTROYED"
+        and event["user_id"] == "alice"
+        and event["details"]["reason"] == "logout"
+        for event in events
+    )
 
 
 def test_csrf_token_required_for_upload(client, flask_app, login_as):

@@ -103,6 +103,15 @@ def create_app() -> Flask:
     def current_user() -> dict:
         return getattr(g, "current_user", _anonymous_user())
 
+    def document_preview_payload(document: dict, plaintext: bytes) -> dict:
+        preview = build_document_preview(document, plaintext)
+        if preview.get("kind") == "pdf":
+            preview["embed_src"] = url_for(
+                "preview_document_content",
+                document_id=document["id"],
+            )
+        return preview
+
     def require_auth(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
@@ -161,7 +170,7 @@ def create_app() -> Flask:
 
         user = auth_service().get_user(session_data.get("user_id"))
         if user is None:
-            invalidate_session(app.config, session_token)
+            invalidate_session(app.config, session_token, reason="user_missing")
             g.clear_session_cookie = True
             return None
 
@@ -296,7 +305,7 @@ def create_app() -> Flask:
     @app.route("/logout", methods=["POST"])
     def logout():
         session_token = request.cookies.get(app.config["SESSION_COOKIE_NAME"])
-        invalidate_session(app.config, session_token)
+        invalidate_session(app.config, session_token, reason="logout")
         response = redirect(url_for("index"))
         return _clear_session_cookie(response, app)
 
@@ -344,6 +353,17 @@ def create_app() -> Flask:
 
             try:
                 if uploaded_file is None:
+                    security_log.log_event(
+                        "UPLOAD_VALIDATION_FAILED",
+                        current_user()["username"],
+                        {
+                            "reason": "Select a file to upload.",
+                            "title": context["title_value"],
+                            "document_type": context["document_type_value"],
+                            "filename": "",
+                        },
+                        severity="WARNING",
+                    )
                     raise ValueError("Select a file to upload.")
 
                 uploaded_document = store_encrypted_document(
@@ -545,7 +565,7 @@ def create_app() -> Flask:
         return render_template(
             "document_preview.html",
             document=document,
-            preview=build_document_preview(document, plaintext),
+            preview=document_preview_payload(document, plaintext),
             can_download=document.get("owner") == user["username"],
             can_edit=document_supports_inline_editing(document)
             and document_role in {"owner", "editor"},
@@ -556,6 +576,39 @@ def create_app() -> Flask:
             share_entries=list_document_shares(app.config, document_id)
             if can_manage_shares
             else [],
+        )
+
+    @app.route("/documents/<document_id>/preview/content")
+    @require_auth
+    @require_role(can_view_shared_content, "document_preview")
+    def preview_document_content(document_id: str):
+        user = current_user()
+
+        try:
+            document, _ = authorize_document_access(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+            plaintext = load_document_plaintext(
+                app.config,
+                document,
+                user_id=user["username"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        if (document.get("document_type") or "").lower() != "pdf":
+            abort(404)
+
+        return send_file(
+            BytesIO(plaintext),
+            as_attachment=False,
+            download_name=document["filename"],
+            mimetype=document["content_type"],
         )
 
     @app.route("/documents/<document_id>/share", methods=["POST"])
@@ -584,7 +637,7 @@ def create_app() -> Flask:
 
         context = {
             "document": document,
-            "preview": build_document_preview(document, plaintext),
+            "preview": document_preview_payload(document, plaintext),
             "can_download": document.get("owner") == user["username"],
             "can_edit": document_supports_inline_editing(document)
             and document_role in {"owner", "editor"},
@@ -638,6 +691,96 @@ def create_app() -> Flask:
             users=auth_service().list_users(),
             recent_documents=list_recent_documents(app.config),
             recent_audit_events=load_recent_audit_events(app.config),
+            available_roles=("admin", "user", "guest"),
+            status_message=request.args.get("message", ""),
+            status_category=request.args.get("status", "info"),
+        )
+
+    @app.route("/admin/users/<username>/role", methods=["POST"])
+    @require_auth
+    @require_role(can_manage_users, "admin_manage_users")
+    def admin_update_user_role(username: str):
+        user = current_user()
+        target_username = username.strip()
+
+        if target_username == user["username"]:
+            return redirect(
+                url_for(
+                    "admin",
+                    status="error",
+                    message="You cannot change your own role from the admin console.",
+                )
+            )
+
+        result = auth_service().update_role(
+            target_username,
+            request.form.get("role", ""),
+            actor_username=user["username"],
+        )
+        if result.get("error"):
+            return redirect(url_for("admin", status="error", message=result["error"]))
+
+        updated_role = normalize_system_role(result["user"].get("role", "user"))
+        return redirect(
+            url_for(
+                "admin",
+                status="success",
+                message=f"Updated {target_username} to role {updated_role}.",
+            )
+        )
+
+    @app.route("/admin/users/<username>/lock", methods=["POST"])
+    @require_auth
+    @require_role(can_manage_users, "admin_manage_users")
+    def admin_lock_user(username: str):
+        user = current_user()
+        target_username = username.strip()
+
+        if target_username == user["username"]:
+            return redirect(
+                url_for(
+                    "admin",
+                    status="error",
+                    message="You cannot lock your own account from the admin console.",
+                )
+            )
+
+        result = auth_service().lock_user(
+            target_username,
+            duration_seconds=app.config["ACCOUNT_LOCKOUT_MINUTES"] * 60,
+            actor_username=user["username"],
+        )
+        if result.get("error"):
+            return redirect(url_for("admin", status="error", message=result["error"]))
+
+        return redirect(
+            url_for(
+                "admin",
+                status="success",
+                message=f"Locked {target_username}.",
+            )
+        )
+
+    @app.route("/admin/users/<username>/unlock", methods=["POST"])
+    @require_auth
+    @require_role(can_manage_users, "admin_manage_users")
+    def admin_unlock_user(username: str):
+        user = current_user()
+        target_username = username.strip()
+
+        result = auth_service().unlock_user(
+            target_username,
+            actor_username=user["username"],
+        )
+        if result.get("error"):
+            return redirect(url_for("admin", status="error", message=result["error"]))
+
+        return redirect(
+            url_for(
+                "admin",
+                status="success",
+                message=f"Unlocked {target_username}.",
+            )
         )
 
     @app.route("/forbidden")

@@ -424,6 +424,15 @@ h3 {
   gap: 10px;
 }
 
+.document-actions select {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font: inherit;
+  color: var(--text);
+  background: white;
+}
+
 .text-link {
   color: var(--accent-strong);
   font-weight: 600;
