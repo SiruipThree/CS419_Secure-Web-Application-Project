@@ -9,6 +9,7 @@ from secure_app.access_control import normalize_system_role
 from secure_app.logging_utils import security_log
 from secure_app.storage import load_json, save_json
 
+#session operation
 
 def load_sessions(config):
     return load_json(config["SESSIONS_FILE"], {})
@@ -18,6 +19,7 @@ def _save_sessions(config, sessions: dict) -> None:
     save_json(config["SESSIONS_FILE"], sessions)
 
 
+#TODO: little tools 
 def _expires_at(config, base_time: float) -> float:
     return base_time + float(config["SESSION_TIMEOUT_SECONDS"])
 
@@ -51,7 +53,7 @@ def invalidate_user_sessions(config, user_id: str) -> int:
         )
     return len(tokens_to_remove)
 
-
+#TODO: create session, get session, invalidate session, session timeout, concurrent session control, session fixation prevention, security log.
 def create_session(config, user_id: str, system_role: str) -> str:
     invalidated_sessions = invalidate_user_sessions(config, user_id)
 
@@ -78,7 +80,6 @@ def create_session(config, user_id: str, system_role: str) -> str:
         },
     )
     return session_token
-
 
 def get_session(config, session_token: str | None) -> dict | None:
     if not session_token:

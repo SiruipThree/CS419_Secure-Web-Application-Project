@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from flask import has_request_context, request
 from werkzeug.utils import secure_filename
 
-
+#TODO: username, email, pasword, etc, rules.
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PASSWORD_SPECIALS = set("!@#$%^&*")
@@ -21,7 +21,7 @@ EICAR_TEST_SIGNATURE = (
     b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 )
 
-
+#sanitize text
 def sanitize_text(value: str) -> str:
     return html.escape(value.strip())
 
@@ -41,7 +41,7 @@ def validate_username(username: str) -> bool:
 def validate_email(email: str) -> bool:
     return bool(EMAIL_PATTERN.fullmatch(email))
 
-
+#URL check 
 def validate_url(
     value: str,
     *,
@@ -96,7 +96,7 @@ def validate_url(
 
     return True, "URL is valid."
 
-
+#password check 
 def validate_password_strength(password: str) -> tuple[bool, str]:
     if len(password) < 12:
         return False, "Password must be at least 12 characters long."

@@ -4,10 +4,20 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent
 
+_ENV = os.getenv("FLASK_ENV", "development")
+_SECRET_KEY = os.getenv("SECRET_KEY")
+if not _SECRET_KEY:
+    if _ENV == "development":
+        _SECRET_KEY = os.urandom(32).hex()
+    else:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is required outside of development mode."
+        )
+
 
 class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
-    ENV = os.getenv("FLASK_ENV", "development")
+    SECRET_KEY = _SECRET_KEY
+    ENV = _ENV
     DEBUG = ENV == "development"
     FORCE_HTTPS = os.getenv(
         "FORCE_HTTPS",
@@ -35,7 +45,7 @@ class Config:
     MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "16"))
     MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
     DOCUMENT_TITLE_MAX_LENGTH = 120
-    ALLOWED_EXTENSIONS = {
+    ALLOWED_EXTENSIONS = { #limitation on file types, with corresponding MIME types for validation
         "pdf",
         "txt",
         "docx",
@@ -61,7 +71,7 @@ class Config:
         "jpg": "JPEG image (.jpg)",
         "jpeg": "JPEG image (.jpeg)",
     }
-
+#TODO: data storage and logging
     DATA_DIR = BASE_DIR / "data"
     USERS_FILE = DATA_DIR / "users.json"
     RATE_LIMITS_FILE = DATA_DIR / "rate_limits.json"
@@ -71,7 +81,7 @@ class Config:
     AUDIT_FILE = DATA_DIR / "audit.json"
     DOCUMENT_STORAGE_DIR = DATA_DIR / "documents"
     UPLOAD_STAGING_DIR = DATA_DIR / "uploads"
-
+#TODO: log and encrytion key storage
     LOG_DIR = BASE_DIR / "logs"
     SECURITY_LOG_FILE = LOG_DIR / "security.log"
     ACCESS_LOG_FILE = LOG_DIR / "access.log"

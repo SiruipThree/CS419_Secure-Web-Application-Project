@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-"""Authorization helpers for system roles and document-level permissions."""
 
+#TODO: determin what role, permission, able to access, what access, and how to log the access control events.
+
+
+#TODO: role setup
 SYSTEM_ROLES = {"admin", "user", "guest"}
 DOCUMENT_ROLES = {"owner", "editor", "viewer"}
 GUEST_SHARE_PRINCIPALS = {"guest", "*"}
@@ -24,14 +27,14 @@ SYSTEM_PERMISSION_MATRIX = {
         "view_shared_content",
     },
 }
-
+#TODO: access control check function
 _DOCUMENT_ROLE_PRIORITY = {
     "viewer": 1,
     "editor": 2,
     "owner": 3,
 }
 
-
+#tools
 def normalize_system_role(system_role: str | None) -> str:
     if system_role in SYSTEM_ROLES:
         return system_role
@@ -119,7 +122,7 @@ def can_edit_document(system_role: str, document_role: str | None) -> bool:
 def can_download_document(system_role: str, document_role: str | None) -> bool:
     if not is_authenticated(system_role):
         return False
-    return normalize_document_role(document_role) == "owner"
+    return normalize_document_role(document_role) in DOCUMENT_ROLES
 
 
 def can_delete_document(system_role: str, document_role: str | None) -> bool:

@@ -14,9 +14,9 @@ from secure_app.security import (
 )
 from secure_app.storage import load_json, save_json
 
-
+#TODO: initialize user auth class 
 class UserAuth:
-    def __init__(
+    def __init__( #创建一个认证服务对象
         self,
         users_file="data/users.json",
         rate_limits_file="data/rate_limits.json",
@@ -37,6 +37,7 @@ class UserAuth:
     def _account_lockout_seconds(self) -> int:
         return self.account_lockout_minutes * 60
 
+#TODO: create some internal basic tools 
     def _log_login_failure(
         self,
         identifier: str | None,
@@ -69,6 +70,8 @@ class UserAuth:
     def _save_users(self, users: dict[str, dict]) -> None:
         save_json(self.users_file, users)
 
+
+#TODO: check rate limit for login attempts IP track 
     def _check_rate_limit(self, ip_address: str | None) -> bool:
         """Allow a configured number of login attempts per IP address per minute."""
 
@@ -90,6 +93,7 @@ class UserAuth:
             return None
         return self._load_users().get(username)
 
+#TODO: find user by username or email 
     def find_user(self, identifier: str | None) -> tuple[str | None, dict | None]:
         if not identifier:
             return None, None
@@ -123,6 +127,9 @@ class UserAuth:
                 }
             )
         return users
+
+#TODO: registration 
+    #user form, email form, password form, determine if the user exist,
 
     def register(self, username, email, password, confirm_password):
         username = (username or "").strip()
@@ -206,11 +213,18 @@ class UserAuth:
         )
         return {"success": True, "user_id": username, "role": "user"}
 
+
+#TODO: login function 
+#IP CHECK 
+#user check
+#attempt failer 
+
+
     def login(self, identifier, password, ip_address):
         normalized_identifier = (identifier or "").strip()
 
         if not self._check_rate_limit(ip_address):
-            self._log_login_failure(
+            self._log_login_failure( 
                 normalized_identifier,
                 "Rate limit exceeded. Try again in a minute.",
             )
@@ -269,6 +283,10 @@ class UserAuth:
         self._log_login_failure(username, "Invalid password match")
         return {"error": "Invalid credentials"}
 
+
+#TODO: change password 
+
+
     def change_password(self, username, old_password, new_password, confirm_password):
         users = self._load_users()
         user = users.get(username)
@@ -314,6 +332,8 @@ class UserAuth:
         )
         return {"success": "Password updated successfully."}
 
+#TODO: Update function
+
     def update_role(
         self,
         username: str,
@@ -349,6 +369,8 @@ class UserAuth:
         )
         return {"success": True, "user": user}
 
+
+#lock and unlock user 
     def lock_user(
         self,
         username: str,

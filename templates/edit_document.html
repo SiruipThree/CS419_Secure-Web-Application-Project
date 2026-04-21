@@ -20,6 +20,7 @@
   {% endif %}
   <p class="section-note">
     Editing <strong>{{ document.filename }}</strong>, version {{ document.version }}.
+    Saving changes will create version {{ document.version + 1 }} and keep the earlier versions available in history.
   </p>
   <form class="form-grid" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

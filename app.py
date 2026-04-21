@@ -16,6 +16,8 @@ from config import Config #get configuration settings
 from secure_app.access_control import ( #who can do what based on their role
     can_access_dashboard,
     can_create_content,
+    can_delete_document,
+    can_download_document,
     can_manage_users,
     can_view_all_content,
     can_view_shared_content,
@@ -26,11 +28,14 @@ from secure_app.documents import (#functions for handling documents
     authorize_document_share_management,
     authorize_document_access,
     authorize_owned_document_edit,
+    authorize_document_revision_upload,
     build_document_preview,
     decrypt_document,
     document_supports_inline_editing,
     load_editable_document_content,
     load_document_plaintext,
+    log_document_preview,
+    list_document_versions,
     list_document_shares,
     list_outbound_document_shares,
     list_owned_documents,
@@ -41,6 +46,7 @@ from secure_app.documents import (#functions for handling documents
     permanently_delete_document,
     share_document_with_user,
     store_encrypted_document,
+    upload_document_revision,
     update_document_content,
 )
 from secure_app.logging_utils import configure_app_logging, security_log
@@ -448,6 +454,59 @@ def create_app() -> Flask: # create and configure the Flask application
 
         return render_template("edit_document.html", **context), status_code
 
+    @app.route("/documents/<document_id>/versions/upload", methods=["GET", "POST"])
+    @require_auth
+    def upload_document_version_page(document_id: str):
+        user = current_user()
+
+        try:
+            document = authorize_document_revision_upload(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        context = {
+            "document": document,
+            "title_value": document["title"],
+            "document_type_label": app.config["DOCUMENT_TYPE_LABELS"].get(
+                document.get("document_type", ""),
+                (document.get("document_type") or "").upper(),
+            ),
+        }
+        status_code = 200
+
+        if request.method == "POST":
+            context["title_value"] = request.form.get("title", "")
+            uploaded_file = request.files.get("document")
+
+            try:
+                document = upload_document_revision(
+                    app.config,
+                    document_id,
+                    context["title_value"],
+                    uploaded_file,
+                    user_id=user["username"],
+                    system_role=user["role"],
+                )
+            except ValueError as exc:
+                context["error"] = str(exc)
+                status_code = 400
+            else:
+                context["document"] = document
+                context["title_value"] = document["title"]
+                context["success"] = (
+                    f"New document version uploaded successfully as version "
+                    f"{document['version']}."
+                )
+
+        return render_template("upload_document_version.html", **context), status_code
+
     @app.route("/documents/<document_id>/download")
     @require_auth
     def download_document(document_id: str):
@@ -459,6 +518,31 @@ def create_app() -> Flask: # create and configure the Flask application
                 document_id,
                 user_id=user["username"],
                 system_role=user["role"],
+            )
+        except FileNotFoundError:
+            abort(404)
+        except PermissionError:
+            abort(403)
+
+        return send_file(
+            BytesIO(plaintext),
+            as_attachment=True,
+            download_name=document["filename"],
+            mimetype=document["content_type"],
+        )
+
+    @app.route("/documents/<document_id>/versions/<int:version>/download")
+    @require_auth
+    def download_document_version(document_id: str, version: int):
+        user = current_user()
+
+        try:
+            document, plaintext = decrypt_document(
+                app.config,
+                document_id,
+                user_id=user["username"],
+                system_role=user["role"],
+                version=version,
             )
         except FileNotFoundError:
             abort(404)
@@ -555,6 +639,10 @@ def create_app() -> Flask: # create and configure the Flask application
         except PermissionError:
             abort(403)
 
+        log_document_preview(
+            app.config, document, user["username"], document_role,
+        )
+
         can_manage_shares = False
         can_return_to_owner = document_role == "editor"
         try:
@@ -573,13 +661,16 @@ def create_app() -> Flask: # create and configure the Flask application
             "document_preview.html",
             document=document,
             preview=document_preview_payload(document, plaintext),
-            can_download=document.get("owner") == user["username"],
+            can_download=can_download_document(user["role"], document_role),
+            can_delete=can_delete_document(user["role"], document_role),
+            can_upload_new_version=document_role in {"owner", "editor"},
             can_edit=document_supports_inline_editing(document)
             and document_role in {"owner", "editor"},
             can_manage_shares=can_manage_shares,
             can_return_to_owner=can_return_to_owner,
             share_target_value="",
             share_role_value="viewer",
+            version_history=list_document_versions(document),
             share_entries=list_document_shares(app.config, document_id)
             if can_manage_shares
             else [],
@@ -592,7 +683,7 @@ def create_app() -> Flask: # create and configure the Flask application
         user = current_user()
 
         try:
-            document, _ = authorize_document_access(
+            document, document_role = authorize_document_access(
                 app.config,
                 document_id,
                 user_id=user["username"],
@@ -610,6 +701,10 @@ def create_app() -> Flask: # create and configure the Flask application
 
         if (document.get("document_type") or "").lower() != "pdf":
             abort(404)
+
+        log_document_preview(
+            app.config, document, user["username"], document_role,
+        )
 
         return send_file(
             BytesIO(plaintext),
@@ -645,7 +740,9 @@ def create_app() -> Flask: # create and configure the Flask application
         context = {
             "document": document,
             "preview": document_preview_payload(document, plaintext),
-            "can_download": document.get("owner") == user["username"],
+            "can_download": can_download_document(user["role"], document_role),
+            "can_delete": can_delete_document(user["role"], document_role),
+            "can_upload_new_version": document_role in {"owner", "editor"},
             "can_edit": document_supports_inline_editing(document)
             and document_role in {"owner", "editor"},
             "can_manage_shares": document_role == "owner" or user["role"] == "admin",
@@ -675,6 +772,9 @@ def create_app() -> Flask: # create and configure the Flask application
 
         if document_role == "editor" and recipient["username"] == document["owner"]:
             context["share_success"] = "Updated document returned to the owner."
+            context["can_return_to_owner"] = False
+            context["can_edit"] = False
+            context["can_upload_new_version"] = False
         else:
             context["share_success"] = (
                 f"Document shared with {recipient['username']} as {share_role_value.strip().lower()}."
@@ -682,6 +782,7 @@ def create_app() -> Flask: # create and configure the Flask application
         context["share_target_value"] = ""
         context["share_role_value"] = "viewer"
         context["share_entries"] = list_document_shares(app.config, document_id)
+        context["version_history"] = list_document_versions(document)
         return render_template("document_preview.html", **context)
     #share and admin console
     @app.route("/shared")

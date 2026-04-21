@@ -31,15 +31,22 @@ from secure_app.security import (
 )
 from secure_app.storage import load_json, save_json
 
-
+#TODO: read and share
 def load_documents(config):
-    return load_json(config["DOCUMENTS_FILE"], [])
+    documents = load_json(config["DOCUMENTS_FILE"], [])
+    if not isinstance(documents, list):
+        return []
+    return [
+        _apply_current_revision(document)
+        for document in documents
+        if isinstance(document, dict) and document.get("id")
+    ]
 
 
 def load_shares(config):
     return load_json(config["SHARES_FILE"], [])
 
-
+#TODO: cipher setup
 def _load_cipher(config) -> Fernet:
     key_path = Path(config["ENCRYPTION_KEY_FILE"])
     key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,13 +60,271 @@ def _load_cipher(config) -> Fernet:
     return Fernet(key)
 
 
-def _next_document_version(documents: list[dict], owner: str, title: str) -> int:
-    matching_versions = [
-        int(document.get("version", 0))
-        for document in documents
-        if document.get("owner") == owner and document.get("title") == title
-    ]
-    return max(matching_versions, default=0) + 1
+def _generate_storage_name() -> str:
+    return f"{secrets.token_urlsafe(16)}.bin"
+
+
+def _build_revision_entry(
+    *,
+    version: int,
+    title: str,
+    document_type: str,
+    filename: str,
+    storage_name: str,
+    content_type: str,
+    size_bytes: int,
+    sha256: str,
+    timestamp: str,
+    updated_by: str | None,
+) -> dict:
+    return {
+        "version": int(version),
+        "title": title,
+        "document_type": document_type,
+        "filename": filename,
+        "storage_name": storage_name,
+        "content_type": content_type,
+        "size_bytes": int(size_bytes),
+        "sha256": sha256,
+        "created_at": timestamp,
+        "updated_at": timestamp,
+        "updated_by": updated_by,
+    }
+
+
+def _current_revision_snapshot(document: dict) -> dict:
+    document_type = (document.get("document_type") or "").strip().lower()
+    timestamp = document.get("updated_at") or document.get("created_at")
+    return _build_revision_entry(
+        version=int(document.get("version", 1) or 1),
+        title=document.get("title", ""),
+        document_type=document_type,
+        filename=document.get("filename", ""),
+        storage_name=document.get("storage_name", ""),
+        content_type=document.get("content_type", "application/octet-stream"),
+        size_bytes=int(document.get("size_bytes", 0) or 0),
+        sha256=document.get("sha256", ""),
+        timestamp=timestamp,
+        updated_by=document.get("updated_by") or document.get("owner"),
+    )
+
+
+def _normalize_version_history(document: dict) -> list[dict]:
+    raw_history = document.get("version_history")
+    history = []
+
+    if isinstance(raw_history, list):
+        for entry in raw_history:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                version = int(entry.get("version", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if version <= 0:
+                continue
+
+            timestamp = entry.get("updated_at") or entry.get("created_at")
+            if not timestamp:
+                timestamp = document.get("updated_at") or document.get("created_at")
+
+            history.append(
+                _build_revision_entry(
+                    version=version,
+                    title=entry.get("title") or document.get("title", ""),
+                    document_type=(
+                        entry.get("document_type")
+                        or document.get("document_type")
+                        or ""
+                    ).strip().lower(),
+                    filename=entry.get("filename") or document.get("filename", ""),
+                    storage_name=entry.get("storage_name")
+                    or document.get("storage_name", ""),
+                    content_type=entry.get("content_type")
+                    or document.get("content_type", "application/octet-stream"),
+                    size_bytes=int(entry.get("size_bytes", 0) or 0),
+                    sha256=entry.get("sha256", ""),
+                    timestamp=timestamp,
+                    updated_by=entry.get("updated_by")
+                    or document.get("updated_by")
+                    or document.get("owner"),
+                )
+            )
+
+    if not history:
+        history = [_current_revision_snapshot(document)]
+
+    history_by_version = {entry["version"]: entry for entry in history}
+    return [history_by_version[version] for version in sorted(history_by_version)]
+
+
+def _apply_current_revision(document: dict) -> dict:
+    normalized_document = dict(document)
+    history = _normalize_version_history(normalized_document)
+    current_revision = history[-1]
+    first_revision = history[0]
+
+    normalized_document.update(
+        {
+            "title": current_revision["title"],
+            "document_type": current_revision["document_type"],
+            "version": current_revision["version"],
+            "filename": current_revision["filename"],
+            "storage_name": current_revision["storage_name"],
+            "content_type": current_revision["content_type"],
+            "size_bytes": current_revision["size_bytes"],
+            "sha256": current_revision["sha256"],
+            "created_at": normalized_document.get("created_at")
+            or first_revision["created_at"],
+            "updated_at": current_revision["updated_at"],
+            "version_history": history,
+        }
+    )
+    return normalized_document
+
+
+def list_document_versions(
+    document: dict,
+    *,
+    descending: bool = True,
+) -> list[dict]:
+    history = _normalize_version_history(document)
+    if descending:
+        return list(reversed(history))
+    return history
+
+
+def get_document_revision(document: dict, version: int | None = None) -> dict:
+    history = list_document_versions(document, descending=False)
+    if version is None:
+        return history[-1]
+
+    for revision in history:
+        if revision["version"] == int(version):
+            return revision
+    raise FileNotFoundError("Document version not found.")
+
+
+def _next_document_version(document: dict) -> int:
+    return int(get_document_revision(document)["version"]) + 1
+
+
+def _store_revision_payload(config, plaintext: bytes) -> tuple[str, str, int]:
+    stored_name = _generate_storage_name()
+    encrypted_payload = _load_cipher(config).encrypt(plaintext)
+    stored_path = safe_file_path(stored_name, config["DOCUMENT_STORAGE_DIR"])
+    stored_path.write_bytes(encrypted_payload)
+    return stored_name, hashlib.sha256(plaintext).hexdigest(), len(plaintext)
+
+
+def _log_upload_validation_failure(
+    *,
+    event_type: str,
+    user_id: str | None,
+    reason: str,
+    title: str,
+    document_type: str,
+    filename: str,
+    extra_details: dict | None = None,
+) -> None:
+    details = {
+        "reason": reason,
+        "title": title.strip(),
+        "document_type": (document_type or "").strip().lower(),
+        "filename": filename,
+    }
+    if extra_details:
+        details.update(extra_details)
+    security_log.log_event(
+        event_type,
+        user_id,
+        details,
+        severity="WARNING",
+    )
+
+
+def _prepare_uploaded_document(
+    config,
+    title: str,
+    document_type: str,
+    uploaded_file,
+    *,
+    user_id: str | None,
+    validation_event_type: str = "UPLOAD_VALIDATION_FAILED",
+    extra_log_details: dict | None = None,
+) -> dict:
+    if uploaded_file is None:
+        message = "Select a file to upload."
+        _log_upload_validation_failure(
+            event_type=validation_event_type,
+            user_id=user_id,
+            reason=message,
+            title=title,
+            document_type=document_type,
+            filename="",
+            extra_details=extra_log_details,
+        )
+        raise ValueError(message)
+
+    plaintext = uploaded_file.read()
+
+    is_valid_title, title_message = validate_document_title(
+        title, config["DOCUMENT_TITLE_MAX_LENGTH"]
+    )
+    if not is_valid_title:
+        _log_upload_validation_failure(
+            event_type=validation_event_type,
+            user_id=user_id,
+            reason=title_message,
+            title=title,
+            document_type=document_type,
+            filename=uploaded_file.filename or "",
+            extra_details=extra_log_details,
+        )
+        raise ValueError(title_message)
+
+    is_valid_file, file_message, cleaned_name = validate_uploaded_file(
+        uploaded_file.filename or "",
+        document_type,
+        getattr(uploaded_file, "mimetype", None),
+        plaintext,
+        config["ALLOWED_EXTENSIONS"],
+        config["ALLOWED_MIME_TYPES"],
+    )
+    if not is_valid_file:
+        _log_upload_validation_failure(
+            event_type=validation_event_type,
+            user_id=user_id,
+            reason=file_message,
+            title=title,
+            document_type=document_type,
+            filename=uploaded_file.filename or "",
+            extra_details=extra_log_details,
+        )
+        raise ValueError(file_message)
+
+    if not plaintext:
+        message = "Uploaded file is empty."
+        _log_upload_validation_failure(
+            event_type=validation_event_type,
+            user_id=user_id,
+            reason=message,
+            title=title,
+            document_type=document_type,
+            filename=uploaded_file.filename or "",
+            extra_details=extra_log_details,
+        )
+        raise ValueError(message)
+
+    return {
+        "title": title.strip(),
+        "document_type": document_type.strip().lower(),
+        "filename": cleaned_name,
+        "content_type": (
+            getattr(uploaded_file, "mimetype", None) or "application/octet-stream"
+        ).split(";", 1)[0],
+        "plaintext": plaintext,
+    }
 
 
 def _append_audit_event(
@@ -78,6 +343,32 @@ def _append_audit_event(
         }
     )
     save_json(config["AUDIT_FILE"], audit_events)
+
+
+def log_document_preview(
+    config,
+    document: dict,
+    user_id: str | None,
+    document_role: str | None = None,
+) -> None:
+    access_log.log_event(
+        "DOCUMENT_PREVIEW",
+        user_id,
+        {
+            "document_id": document.get("id"),
+            "filename": document.get("filename"),
+            "document_role": document_role,
+        },
+    )
+    _append_audit_event(
+        config,
+        "DOCUMENT_PREVIEW",
+        user_id,
+        {
+            "document_id": document.get("id"),
+            "filename": document.get("filename"),
+        },
+    )
 
 
 def load_recent_audit_events(
@@ -253,89 +544,43 @@ def store_encrypted_document(
     uploaded_file,
     owner: str = "demo-user",
 ):
-    plaintext = uploaded_file.read()
-
-    is_valid_title, title_message = validate_document_title(
-        title, config["DOCUMENT_TITLE_MAX_LENGTH"]
-    )
-    if not is_valid_title:
-        security_log.log_event(
-            "UPLOAD_VALIDATION_FAILED",
-            owner,
-            {
-                "reason": title_message,
-                "title": title,
-                "document_type": document_type,
-                "filename": uploaded_file.filename or "",
-            },
-            severity="WARNING",
-        )
-        raise ValueError(title_message)
-
-    is_valid_file, file_message, cleaned_name = validate_uploaded_file(
-        uploaded_file.filename or "",
+    prepared_upload = _prepare_uploaded_document(
+        config,
+        title,
         document_type,
-        getattr(uploaded_file, "mimetype", None),
-        plaintext,
-        config["ALLOWED_EXTENSIONS"],
-        config["ALLOWED_MIME_TYPES"],
+        uploaded_file,
+        user_id=owner,
+        validation_event_type="UPLOAD_VALIDATION_FAILED",
     )
-    if not is_valid_file:
-        security_log.log_event(
-            "UPLOAD_VALIDATION_FAILED",
-            owner,
-            {
-                "reason": file_message,
-                "title": title.strip(),
-                "document_type": document_type,
-                "filename": uploaded_file.filename or "",
-            },
-            severity="WARNING",
-        )
-        raise ValueError(file_message)
-    if not plaintext:
-        security_log.log_event(
-            "UPLOAD_VALIDATION_FAILED",
-            owner,
-            {
-                "reason": "Uploaded file is empty.",
-                "title": title.strip(),
-                "document_type": document_type,
-                "filename": uploaded_file.filename or "",
-            },
-            severity="WARNING",
-        )
-        raise ValueError("Uploaded file is empty.")
-
-    cipher = _load_cipher(config)
-    encrypted_payload = cipher.encrypt(plaintext)
-
     documents = load_documents(config)
-    normalized_title = title.strip()
     document_id = secrets.token_urlsafe(16)
-    version = _next_document_version(documents, owner, normalized_title)
-    stored_name = f"{document_id}.bin"
-    stored_path = safe_file_path(stored_name, config["DOCUMENT_STORAGE_DIR"])
-    stored_path.write_bytes(encrypted_payload)
+    version = 1
 
     timestamp = datetime.now(timezone.utc).isoformat()
-    content_type = (
-        getattr(uploaded_file, "mimetype", None) or "application/octet-stream"
-    ).split(";", 1)[0]
+    stored_name, sha256, size_bytes = _store_revision_payload(
+        config,
+        prepared_upload["plaintext"],
+    )
+    initial_revision = _build_revision_entry(
+        version=version,
+        title=prepared_upload["title"],
+        document_type=prepared_upload["document_type"],
+        filename=prepared_upload["filename"],
+        storage_name=stored_name,
+        content_type=prepared_upload["content_type"],
+        size_bytes=size_bytes,
+        sha256=sha256,
+        timestamp=timestamp,
+        updated_by=owner,
+    )
 
     metadata = {
         "id": document_id,
-        "title": normalized_title,
         "owner": owner,
-        "document_type": document_type.strip().lower(),
-        "version": version,
-        "filename": cleaned_name,
-        "storage_name": stored_name,
-        "content_type": content_type,
-        "size_bytes": len(plaintext),
-        "sha256": hashlib.sha256(plaintext).hexdigest(),
         "created_at": timestamp,
         "updated_at": timestamp,
+        "version_history": [initial_revision],
+        **initial_revision,
     }
     documents.append(metadata)
     save_json(config["DOCUMENTS_FILE"], documents)
@@ -345,7 +590,7 @@ def store_encrypted_document(
         owner,
         {
             "document_id": document_id,
-            "filename": cleaned_name,
+            "filename": prepared_upload["filename"],
             "version": version,
         },
     )
@@ -355,8 +600,8 @@ def store_encrypted_document(
         owner,
         {
             "document_id": document_id,
-            "title": normalized_title,
-            "filename": cleaned_name,
+            "title": prepared_upload["title"],
+            "filename": prepared_upload["filename"],
             "version": version,
         },
     )
@@ -455,6 +700,7 @@ def decrypt_document(
     document_id: str,
     user_id: str | None = None,
     system_role: str = "guest",
+    version: int | None = None,
 ):
     document, document_role = authorize_document_download(
         config,
@@ -462,13 +708,25 @@ def decrypt_document(
         user_id=user_id,
         system_role=system_role,
     )
-    plaintext = load_document_plaintext(config, document, user_id=user_id)
+    revision = get_document_revision(document, version)
+    plaintext = load_document_plaintext(
+        config,
+        document,
+        user_id=user_id,
+        version=revision["version"],
+    )
+    versioned_document = {
+        **document,
+        **revision,
+        "version_history": list_document_versions(document, descending=False),
+    }
     access_log.log_event(
         "DOCUMENT_DOWNLOAD",
         user_id,
         {
             "document_id": document_id,
-            "filename": document["filename"],
+            "filename": revision["filename"],
+            "version": revision["version"],
             "document_role": document_role or normalize_system_role(system_role),
         },
     )
@@ -476,14 +734,25 @@ def decrypt_document(
         config,
         "DOCUMENT_DOWNLOAD",
         user_id,
-        {"document_id": document_id, "filename": document["filename"]},
+        {
+            "document_id": document_id,
+            "filename": revision["filename"],
+            "version": revision["version"],
+        },
     )
-    return document, plaintext
+    return versioned_document, plaintext
 
 
-def load_document_plaintext(config, document: dict, user_id: str | None = None) -> bytes:
+def load_document_plaintext(
+    config,
+    document: dict,
+    user_id: str | None = None,
+    *,
+    version: int | None = None,
+) -> bytes:
+    revision = get_document_revision(document, version)
     encrypted_path = safe_file_path(
-        document["storage_name"], config["DOCUMENT_STORAGE_DIR"]
+        revision["storage_name"], config["DOCUMENT_STORAGE_DIR"]
     )
 
     if not encrypted_path.exists():
@@ -492,7 +761,8 @@ def load_document_plaintext(config, document: dict, user_id: str | None = None) 
             user_id,
             {
                 "document_id": document.get("id"),
-                "storage_name": document["storage_name"],
+                "storage_name": revision["storage_name"],
+                "version": revision["version"],
             },
             severity="ERROR",
         )
@@ -580,6 +850,26 @@ def authorize_owned_document_edit(
     user_id: str | None = None,
     system_role: str = "guest",
 ):
+    document, _ = _authorize_document_editor_action(
+        config,
+        document_id,
+        user_id=user_id,
+        system_role=system_role,
+        denied_event_type="DOCUMENT_EDIT_DENIED",
+        denied_message="You do not have permission to edit this document.",
+    )
+    return document
+
+
+def _authorize_document_editor_action(
+    config,
+    document_id: str,
+    *,
+    user_id: str | None = None,
+    system_role: str = "guest",
+    denied_event_type: str,
+    denied_message: str,
+) -> tuple[dict, str]:
     document, document_role = authorize_document_access(
         config,
         document_id,
@@ -595,7 +885,7 @@ def authorize_owned_document_edit(
         or normalized_document_role not in {"owner", "editor"}
     ):
         security_log.log_event(
-            "DOCUMENT_EDIT_DENIED",
+            denied_event_type,
             user_id,
             {
                 "document_id": document_id,
@@ -604,7 +894,24 @@ def authorize_owned_document_edit(
             },
             severity="WARNING",
         )
-        raise PermissionError("You do not have permission to edit this document.")
+        raise PermissionError(denied_message)
+    return document, normalized_document_role
+
+
+def authorize_document_revision_upload(
+    config,
+    document_id: str,
+    user_id: str | None = None,
+    system_role: str = "guest",
+):
+    document, _ = _authorize_document_editor_action(
+        config,
+        document_id,
+        user_id=user_id,
+        system_role=system_role,
+        denied_event_type="DOCUMENT_VERSION_UPLOAD_DENIED",
+        denied_message="You do not have permission to upload a new version of this document.",
+    )
     return document
 
 
@@ -664,12 +971,24 @@ def share_document_with_user(
         raise ValueError("You already have access to this document.")
     if normalized_recipient == document.get("owner"):
         if can_return_to_owner:
+            shares = load_shares(config)
+            for share in shares:
+                if (
+                    share.get("document_id") == document_id
+                    and share.get("principal") == user_id
+                    and share.get("role") == "editor"
+                ):
+                    share["role"] = "viewer"
+                    save_json(config["SHARES_FILE"], shares)
+                    break
+
             access_log.log_event(
                 "DOCUMENT_RETURNED_TO_OWNER",
                 user_id,
                 {
                     "document_id": document_id,
                     "owner": normalized_recipient,
+                    "editor_downgraded_to": "viewer",
                 },
             )
             _append_audit_event(
@@ -679,6 +998,7 @@ def share_document_with_user(
                 {
                     "document_id": document_id,
                     "owner": normalized_recipient,
+                    "editor_downgraded_to": "viewer",
                 },
             )
             return {
@@ -759,46 +1079,19 @@ def update_document_title(
         user_id=user_id,
         system_role=system_role,
     )
-    is_valid_title, title_message = validate_document_title(
-        title, config["DOCUMENT_TITLE_MAX_LENGTH"]
+    plaintext = load_document_plaintext(config, document, user_id=user_id)
+    return _create_document_revision(
+        config,
+        document,
+        title=title,
+        plaintext=plaintext,
+        user_id=user_id,
+        filename=None,
+        document_type=None,
+        content_type=None,
+        access_event_type="DOCUMENT_EDIT",
+        audit_event_type="DOCUMENT_EDIT",
     )
-    if not is_valid_title:
-        raise ValueError(title_message)
-
-    normalized_title = title.strip()
-    timestamp = datetime.now(timezone.utc).isoformat()
-    documents = load_documents(config)
-
-    for index, candidate in enumerate(documents):
-        if candidate.get("id") != document_id:
-            continue
-        updated_document = {
-            **candidate,
-            "title": normalized_title,
-            "updated_at": timestamp,
-        }
-        documents[index] = updated_document
-        save_json(config["DOCUMENTS_FILE"], documents)
-        access_log.log_event(
-            "DOCUMENT_EDIT",
-            user_id,
-            {
-                "document_id": document_id,
-                "title": normalized_title,
-            },
-        )
-        _append_audit_event(
-            config,
-            "DOCUMENT_EDIT",
-            user_id,
-            {
-                "document_id": document_id,
-                "title": normalized_title,
-            },
-        )
-        return updated_document
-
-    raise FileNotFoundError("Document not found.")
 
 
 def document_supports_inline_editing(document: dict) -> bool:
@@ -831,49 +1124,145 @@ def update_document_content(
     if not is_valid_title:
         raise ValueError(title_message)
 
-    normalized_title = title.strip()
-    timestamp = datetime.now(timezone.utc).isoformat()
-    documents = load_documents(config)
-    plaintext = None
     if document_supports_inline_editing(document):
         plaintext = (content or "").encode("utf-8")
-        encrypted_payload = _load_cipher(config).encrypt(plaintext)
-        stored_path = safe_file_path(document["storage_name"], config["DOCUMENT_STORAGE_DIR"])
-        stored_path.write_bytes(encrypted_payload)
+    else:
+        plaintext = load_document_plaintext(config, document, user_id=user_id)
 
+    return _create_document_revision(
+        config,
+        document,
+        title=title,
+        plaintext=plaintext,
+        user_id=user_id,
+        filename=None,
+        document_type=None,
+        content_type=None,
+        access_event_type="DOCUMENT_EDIT",
+        audit_event_type="DOCUMENT_EDIT",
+    )
+
+
+def _create_document_revision(
+    config,
+    document: dict,
+    *,
+    title: str,
+    plaintext: bytes,
+    user_id: str | None,
+    filename: str | None,
+    document_type: str | None,
+    content_type: str | None,
+    access_event_type: str,
+    audit_event_type: str,
+):
+    normalized_title = title.strip()
+    timestamp = datetime.now(timezone.utc).isoformat()
+    current_revision = get_document_revision(document)
+    next_version = _next_document_version(document)
+    normalized_document_type = (
+        document_type or document.get("document_type") or ""
+    ).strip().lower()
+    effective_filename = filename or current_revision["filename"]
+    effective_content_type = (
+        content_type
+        or current_revision.get("content_type")
+        or "application/octet-stream"
+    ).split(";", 1)[0]
+    stored_name, sha256, size_bytes = _store_revision_payload(config, plaintext)
+    new_revision = _build_revision_entry(
+        version=next_version,
+        title=normalized_title,
+        document_type=normalized_document_type,
+        filename=effective_filename,
+        storage_name=stored_name,
+        content_type=effective_content_type,
+        size_bytes=size_bytes,
+        sha256=sha256,
+        timestamp=timestamp,
+        updated_by=user_id,
+    )
+
+    documents = load_documents(config)
     for index, candidate in enumerate(documents):
-        if candidate.get("id") != document_id:
+        if candidate.get("id") != document.get("id"):
             continue
         updated_document = {
             **candidate,
-            "title": normalized_title,
+            **new_revision,
             "updated_at": timestamp,
+            "version_history": [
+                *list_document_versions(candidate, descending=False),
+                new_revision,
+            ],
         }
-        if plaintext is not None:
-            updated_document["size_bytes"] = len(plaintext)
-            updated_document["sha256"] = hashlib.sha256(plaintext).hexdigest()
-        documents[index] = updated_document
+        documents[index] = _apply_current_revision(updated_document)
         save_json(config["DOCUMENTS_FILE"], documents)
         access_log.log_event(
-            "DOCUMENT_EDIT",
+            access_event_type,
             user_id,
             {
-                "document_id": document_id,
+                "document_id": document["id"],
                 "title": normalized_title,
+                "filename": effective_filename,
+                "version": next_version,
             },
         )
         _append_audit_event(
             config,
-            "DOCUMENT_EDIT",
+            audit_event_type,
             user_id,
             {
-                "document_id": document_id,
+                "document_id": document["id"],
                 "title": normalized_title,
+                "filename": effective_filename,
+                "version": next_version,
             },
         )
-        return updated_document
+        return documents[index]
 
     raise FileNotFoundError("Document not found.")
+
+
+def upload_document_revision(
+    config,
+    document_id: str,
+    title: str,
+    uploaded_file,
+    *,
+    user_id: str | None = None,
+    system_role: str = "guest",
+):
+    document = authorize_document_revision_upload(
+        config,
+        document_id,
+        user_id=user_id,
+        system_role=system_role,
+    )
+    prepared_upload = _prepare_uploaded_document(
+        config,
+        title,
+        document.get("document_type", ""),
+        uploaded_file,
+        user_id=user_id,
+        validation_event_type="DOCUMENT_VERSION_UPLOAD_VALIDATION_FAILED",
+        extra_log_details={
+            "document_id": document_id,
+            "current_version": int(document.get("version", 1) or 1),
+        },
+    )
+    return _create_document_revision(
+        config,
+        document,
+        title=prepared_upload["title"],
+        plaintext=prepared_upload["plaintext"],
+        user_id=user_id,
+        filename=prepared_upload["filename"],
+        document_type=prepared_upload["document_type"],
+        content_type=prepared_upload["content_type"],
+        access_event_type="DOCUMENT_VERSION_UPLOAD",
+        audit_event_type="DOCUMENT_VERSION_UPLOAD",
+    )
 
 
 def permanently_delete_document(
@@ -903,11 +1292,15 @@ def permanently_delete_document(
     ]
     save_json(config["SHARES_FILE"], shares)
 
-    encrypted_path = safe_file_path(
-        document["storage_name"], config["DOCUMENT_STORAGE_DIR"]
-    )
-    if encrypted_path.exists():
-        encrypted_path.unlink()
+    storage_names = {
+        revision.get("storage_name")
+        for revision in list_document_versions(document, descending=False)
+        if revision.get("storage_name")
+    }
+    for storage_name in storage_names:
+        encrypted_path = safe_file_path(storage_name, config["DOCUMENT_STORAGE_DIR"])
+        if encrypted_path.exists():
+            encrypted_path.unlink()
 
     access_log.log_event(
         "DOCUMENT_DELETE",

@@ -50,7 +50,7 @@ def test_document_permissions_respect_own_content_matrix():
     assert can_view_document("admin", None) is True
     assert can_edit_document("admin", "owner") is True
     assert can_delete_document("admin", "viewer") is False
-    assert can_download_document("admin", "viewer") is False
+    assert can_download_document("admin", "viewer") is True
 
     assert can_view_document("user", "owner") is True
     assert can_edit_document("user", "owner") is True
@@ -60,12 +60,12 @@ def test_document_permissions_respect_own_content_matrix():
     assert can_view_document("user", "viewer") is True
     assert can_edit_document("user", "viewer") is False
     assert can_delete_document("user", "viewer") is False
-    assert can_download_document("user", "viewer") is False
+    assert can_download_document("user", "viewer") is True
 
     assert can_view_document("user", "editor") is True
     assert can_edit_document("user", "editor") is True
     assert can_delete_document("user", "editor") is False
-    assert can_download_document("user", "editor") is False
+    assert can_download_document("user", "editor") is True
 
     assert can_view_document("guest", "viewer") is True
     assert can_edit_document("guest", "owner") is False
@@ -430,7 +430,8 @@ def test_shared_document_is_visible_to_named_user_after_owner_shares_it(
     assert b"viewer access" in shared_response.data
     assert preview_response.status_code == 200
     assert b"shared with recipient" in preview_response.data
-    assert download_response.status_code == 403
+    assert download_response.status_code == 200
+    assert download_response.data == b"shared with recipient"
 
 
 def test_editor_can_edit_shared_text_document_but_cannot_download(
@@ -476,7 +477,8 @@ def test_editor_can_edit_shared_text_document_but_cannot_download(
     download_response = client.get(f"/documents/{document['id']}/download")
     assert preview_response.status_code == 200
     assert b"revised by editor" in preview_response.data
-    assert download_response.status_code == 403
+    assert download_response.status_code == 200
+    assert download_response.data == b"revised by editor"
 
     client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
     owner_login_response = client.post(

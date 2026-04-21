@@ -165,6 +165,9 @@ def test_upload_encrypts_file_and_download_restores_plaintext(client, flask_app,
 
     document = documents[0]
     assert document["document_type"] == "txt"
+    assert document["version"] == 1
+    assert len(document["version_history"]) == 1
+    assert document["version_history"][0]["version"] == 1
     encrypted_payload = (
         flask_app.config["DOCUMENT_STORAGE_DIR"] / document["storage_name"]
     ).read_bytes()
@@ -236,15 +239,25 @@ def test_owner_can_edit_document_title_from_edit_route(client, flask_app, login_
 
     updated_document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
     assert updated_document["title"] == "Updated Title"
+    assert updated_document["version"] == 2
+    assert len(updated_document["version_history"]) == 2
+    assert [entry["version"] for entry in updated_document["version_history"]] == [1, 2]
 
     download_response = client.get(f"/documents/{document['id']}/download")
     assert download_response.status_code == 200
     assert download_response.data == b"Updated body"
 
+    original_version_download = client.get(
+        f"/documents/{document['id']}/versions/1/download"
+    )
+    assert original_version_download.status_code == 200
+    assert original_version_download.data == b"edit me"
+
     audit_events = json.loads(flask_app.config["AUDIT_FILE"].read_text())
     assert [event["event_type"] for event in audit_events] == [
         "DOCUMENT_UPLOAD",
         "DOCUMENT_EDIT",
+        "DOCUMENT_DOWNLOAD",
         "DOCUMENT_DOWNLOAD",
     ]
 
@@ -282,11 +295,254 @@ def test_owner_can_edit_title_for_non_text_document(client, flask_app, login_as)
     assert b"Document details updated successfully." in response.data
 
     updated_document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    assert updated_document["title"] == "Renamed PDF Title"
+    assert updated_document["version"] == 2
+    assert len(updated_document["version_history"]) == 2
+    assert updated_document["storage_name"] != document["storage_name"]
     encrypted_after = (
         flask_app.config["DOCUMENT_STORAGE_DIR"] / updated_document["storage_name"]
     ).read_bytes()
-    assert updated_document["title"] == "Renamed PDF Title"
-    assert encrypted_after == encrypted_before
+    assert encrypted_after != encrypted_before
+    assert (
+        flask_app.config["DOCUMENT_STORAGE_DIR"] / document["storage_name"]
+    ).exists()
+
+    latest_download = client.get(f"/documents/{document['id']}/download")
+    assert latest_download.status_code == 200
+    assert latest_download.data == b"%PDF-1.7\nplaceholder"
+
+    original_version_download = client.get(
+        f"/documents/{document['id']}/versions/1/download"
+    )
+    assert original_version_download.status_code == 200
+    assert original_version_download.data == b"%PDF-1.7\nplaceholder"
+
+
+def test_owner_can_upload_new_binary_version_for_existing_document(
+    client,
+    flask_app,
+    login_as,
+):
+    login_as("alice")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Quarterly Report",
+            "document_type": "pdf",
+            "document": (BytesIO(b"%PDF-1.7\nversion one"), "report-v1.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    original_storage_name = document["storage_name"]
+
+    version_page = client.get(f"/documents/{document['id']}/versions/upload")
+    assert version_page.status_code == 200
+    assert b"Upload New Version" in version_page.data
+
+    revision_response = client.post(
+        f"/documents/{document['id']}/versions/upload",
+        data={
+            "title": "Quarterly Report Revised",
+            "document": (BytesIO(b"%PDF-1.7\nversion two"), "report-v2.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert revision_response.status_code == 200
+    assert b"New document version uploaded successfully as version 2." in revision_response.data
+
+    updated_document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    assert updated_document["id"] == document["id"]
+    assert updated_document["title"] == "Quarterly Report Revised"
+    assert updated_document["filename"] == "report-v2.pdf"
+    assert updated_document["version"] == 2
+    assert len(updated_document["version_history"]) == 2
+    assert [entry["version"] for entry in updated_document["version_history"]] == [1, 2]
+    assert updated_document["storage_name"] != original_storage_name
+    assert (
+        flask_app.config["DOCUMENT_STORAGE_DIR"] / original_storage_name
+    ).exists()
+
+    latest_download = client.get(f"/documents/{document['id']}/download")
+    assert latest_download.status_code == 200
+    assert latest_download.data == b"%PDF-1.7\nversion two"
+
+    original_version_download = client.get(
+        f"/documents/{document['id']}/versions/1/download"
+    )
+    assert original_version_download.status_code == 200
+    assert original_version_download.data == b"%PDF-1.7\nversion one"
+
+    audit_events = json.loads(flask_app.config["AUDIT_FILE"].read_text())
+    assert [event["event_type"] for event in audit_events] == [
+        "DOCUMENT_UPLOAD",
+        "DOCUMENT_VERSION_UPLOAD",
+        "DOCUMENT_DOWNLOAD",
+        "DOCUMENT_DOWNLOAD",
+    ]
+
+
+def test_editor_can_upload_new_version_for_shared_document(
+    client,
+    flask_app,
+    login_as,
+    make_user,
+):
+    login_as("alice")
+    make_user("carol")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Shared PDF",
+            "document_type": "pdf",
+            "document": (BytesIO(b"%PDF-1.7\nowner draft"), "shared-v1.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    share_response = client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "carol",
+            "access_role": "editor",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+    assert share_response.status_code == 200
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    login_response = client.post(
+        "/login",
+        data={"identifier": "carol", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+    assert login_response.status_code == 302
+
+    version_page = client.get(f"/documents/{document['id']}/versions/upload")
+    assert version_page.status_code == 200
+
+    revision_response = client.post(
+        f"/documents/{document['id']}/versions/upload",
+        data={
+            "title": "Editor Revised PDF",
+            "document": (BytesIO(b"%PDF-1.7\neditor revision"), "shared-v2.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert revision_response.status_code == 200
+
+    editor_download = client.get(f"/documents/{document['id']}/download")
+    assert editor_download.status_code == 200
+    assert editor_download.data == b"%PDF-1.7\neditor revision"
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    owner_login_response = client.post(
+        "/login",
+        data={"identifier": "alice", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+    assert owner_login_response.status_code == 302
+
+    owner_download = client.get(f"/documents/{document['id']}/download")
+    assert owner_download.status_code == 200
+    assert owner_download.data == b"%PDF-1.7\neditor revision"
+
+    original_version_download = client.get(
+        f"/documents/{document['id']}/versions/1/download"
+    )
+    assert original_version_download.status_code == 200
+    assert original_version_download.data == b"%PDF-1.7\nowner draft"
+
+    updated_document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    assert updated_document["version"] == 2
+    assert updated_document["title"] == "Editor Revised PDF"
+    assert updated_document["filename"] == "shared-v2.pdf"
+
+
+def test_viewer_cannot_upload_new_version(client, flask_app, login_as, make_user):
+    login_as("alice")
+    make_user("bob")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Viewer Shared PDF",
+            "document_type": "pdf",
+            "document": (BytesIO(b"%PDF-1.7\nowner only"), "viewer-shared.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    share_response = client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "bob",
+            "access_role": "viewer",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+    assert share_response.status_code == 200
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    login_response = client.post(
+        "/login",
+        data={"identifier": "bob", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+    assert login_response.status_code == 302
+
+    version_page = client.get(f"/documents/{document['id']}/versions/upload")
+    assert version_page.status_code == 403
+
+
+def test_upload_new_version_rejects_document_type_mismatch(
+    client,
+    flask_app,
+    login_as,
+):
+    login_as("alice")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Type Locked PDF",
+            "document_type": "pdf",
+            "document": (BytesIO(b"%PDF-1.7\nfirst version"), "locked-v1.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    revision_response = client.post(
+        f"/documents/{document['id']}/versions/upload",
+        data={
+            "title": "Type Locked PDF",
+            "document": (BytesIO(b"not a pdf"), "locked-v2.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert revision_response.status_code == 400
+    assert (
+        b"Uploaded file extension does not match the selected document type."
+        in revision_response.data
+    )
 
 
 def test_non_owner_cannot_edit_document(client, flask_app, login_as):
@@ -527,3 +783,273 @@ def test_owner_can_permanently_delete_document(client, flask_app, login_as, make
         "DOCUMENT_SHARED",
         "DOCUMENT_DELETE",
     ]
+
+
+def test_viewer_can_download_shared_document(client, flask_app, login_as, make_user):
+    login_as("alice")
+    make_user("bob")
+    plaintext = b"viewer downloadable content"
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Viewer Download Test",
+            "document_type": "txt",
+            "document": (BytesIO(plaintext), "viewer-dl.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "bob",
+            "access_role": "viewer",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    client.post(
+        "/login",
+        data={"identifier": "bob", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+
+    download_response = client.get(f"/documents/{document['id']}/download")
+    assert download_response.status_code == 200
+    assert download_response.data == plaintext
+
+
+def test_editor_can_download_shared_document(client, flask_app, login_as, make_user):
+    login_as("alice")
+    make_user("carol")
+    plaintext = b"editor downloadable content"
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Editor Download Test",
+            "document_type": "txt",
+            "document": (BytesIO(plaintext), "editor-dl.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "carol",
+            "access_role": "editor",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    client.post(
+        "/login",
+        data={"identifier": "carol", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+
+    download_response = client.get(f"/documents/{document['id']}/download")
+    assert download_response.status_code == 200
+    assert download_response.data == plaintext
+
+
+def test_unauthenticated_user_cannot_download(client, flask_app, login_as):
+    login_as("alice")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Auth Required",
+            "document_type": "txt",
+            "document": (BytesIO(b"secret"), "secret.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+
+    download_response = client.get(
+        f"/documents/{document['id']}/download",
+        follow_redirects=False,
+    )
+    assert download_response.status_code == 302
+    assert "/login" in download_response.headers["Location"]
+
+
+def test_shared_user_cannot_delete_document(client, flask_app, login_as, make_user):
+    login_as("alice")
+    make_user("bob")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "No Delete For Viewer",
+            "document_type": "txt",
+            "document": (BytesIO(b"protected"), "protected.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "bob",
+            "access_role": "editor",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    client.post(
+        "/login",
+        data={"identifier": "bob", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+
+    delete_response = client.post(
+        f"/documents/{document['id']}/delete",
+        data={"csrf_token": _get_csrf(flask_app)},
+    )
+    assert delete_response.status_code == 403
+
+    documents = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())
+    assert len(documents) == 1
+
+
+def test_return_to_owner_downgrades_editor_to_viewer(
+    client,
+    flask_app,
+    login_as,
+    make_user,
+):
+    login_as("alice")
+    make_user("carol")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Return Flow Doc",
+            "document_type": "txt",
+            "document": (BytesIO(b"draft content"), "return-flow.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "carol",
+            "access_role": "editor",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+
+    shares_before = json.loads(flask_app.config["SHARES_FILE"].read_text())
+    assert shares_before[0]["principal"] == "carol"
+    assert shares_before[0]["role"] == "editor"
+
+    client.post("/logout", data={"csrf_token": _get_csrf(flask_app)})
+    client.post(
+        "/login",
+        data={"identifier": "carol", "password": "StrongPass!123"},
+        follow_redirects=False,
+    )
+
+    return_response = client.post(
+        f"/documents/{document['id']}/share",
+        data={
+            "recipient_username": "alice",
+            "access_role": "viewer",
+            "csrf_token": _get_csrf(flask_app),
+        },
+    )
+    assert return_response.status_code == 200
+    assert b"Updated document returned to the owner." in return_response.data
+
+    shares_after = json.loads(flask_app.config["SHARES_FILE"].read_text())
+    assert shares_after[0]["principal"] == "carol"
+    assert shares_after[0]["role"] == "viewer"
+
+    edit_page = client.get(f"/documents/{document['id']}/edit")
+    assert edit_page.status_code == 403
+
+    audit_events = json.loads(flask_app.config["AUDIT_FILE"].read_text())
+    returned_events = [
+        e for e in audit_events if e["event_type"] == "DOCUMENT_RETURNED_TO_OWNER"
+    ]
+    assert len(returned_events) == 1
+    assert returned_events[0]["details"]["editor_downgraded_to"] == "viewer"
+
+
+def test_preview_creates_audit_event(client, flask_app, login_as):
+    login_as("alice")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "Preview Audit Test",
+            "document_type": "txt",
+            "document": (BytesIO(b"audit this"), "audit.txt"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    preview_response = client.get(f"/documents/{document['id']}/preview")
+    assert preview_response.status_code == 200
+
+    audit_events = json.loads(flask_app.config["AUDIT_FILE"].read_text())
+    event_types = [e["event_type"] for e in audit_events]
+    assert "DOCUMENT_UPLOAD" in event_types
+    assert "DOCUMENT_PREVIEW" in event_types
+
+    preview_event = [e for e in audit_events if e["event_type"] == "DOCUMENT_PREVIEW"][0]
+    assert preview_event["user_id"] == "alice"
+    assert preview_event["details"]["document_id"] == document["id"]
+
+
+def test_pdf_preview_content_creates_audit_event(client, flask_app, login_as):
+    login_as("alice")
+
+    upload_response = client.post(
+        "/upload",
+        data={
+            "title": "PDF Audit Test",
+            "document_type": "pdf",
+            "document": (BytesIO(b"%PDF-1.7\naudit pdf"), "audit.pdf"),
+            "csrf_token": _get_csrf(flask_app),
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    document = json.loads(flask_app.config["DOCUMENTS_FILE"].read_text())[0]
+    content_response = client.get(f"/documents/{document['id']}/preview/content")
+    assert content_response.status_code == 200
+
+    audit_events = json.loads(flask_app.config["AUDIT_FILE"].read_text())
+    preview_events = [e for e in audit_events if e["event_type"] == "DOCUMENT_PREVIEW"]
+    assert len(preview_events) >= 1
+    assert preview_events[-1]["user_id"] == "alice"
+    assert preview_events[-1]["details"]["document_id"] == document["id"]

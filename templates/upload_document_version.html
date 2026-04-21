@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Upload New Version{% endblock %}
+
+{% block content %}
+<section class="panel content-panel">
+  <h1>Upload New Version</h1>
+  <p class="panel-subtitle">
+    Add a new encrypted revision for <strong>{{ document.filename }}</strong>.
+  </p>
+  {% if error %}
+  <div class="status-banner status-error">
+    <strong>Upload failed</strong>
+    {{ error }}
+  </div>
+  {% endif %}
+  {% if success %}
+  <div class="status-banner status-success">
+    <strong>Version stored</strong>
+    {{ success }}
+  </div>
+  {% endif %}
+  <p class="section-note">
+    Current version: <strong>{{ document.version }}</strong>.
+    Uploading a new file will create version <strong>{{ document.version + 1 }}</strong> and keep earlier revisions in history.
+  </p>
+  <form class="form-grid" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Document Title
+      <input type="text" name="title" value="{{ title_value }}">
+    </label>
+    <label>
+      Document Type
+      <input type="text" value="{{ document_type_label }}" readonly>
+    </label>
+    <label>
+      New File
+      <input type="file" name="document" required>
+    </label>
+    <button class="button" type="submit">Upload Version {{ document.version + 1 }}</button>
+  </form>
+</section>
+{% endblock %}
