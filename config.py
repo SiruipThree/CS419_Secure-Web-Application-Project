@@ -1,8 +1,10 @@
 from pathlib import Path
 import os
 
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 _ENV = os.getenv("FLASK_ENV", "development")
 _SECRET_KEY = os.getenv("SECRET_KEY")
