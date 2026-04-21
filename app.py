@@ -935,6 +935,10 @@ def create_app() -> Flask: # create and configure the Flask application
     def handle_request_entity_too_large(error):
         return render_template("413.html"), 413
 
+    @app.errorhandler(500)
+    def handle_internal_server_error(error):
+        return render_template("500.html"), 500
+
     return app
 
 #local development 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from http.cookies import SimpleCookie
 
 import secure_app.sessions as sessions_module
 from secure_app.storage import load_json
@@ -12,6 +13,12 @@ def _login(client, identifier: str, password: str):
         data={"identifier": identifier, "password": password},
         follow_redirects=False,
     )
+
+
+def _session_cookie_value(response, cookie_name: str) -> str:
+    cookie = SimpleCookie()
+    cookie.load(response.headers["Set-Cookie"])
+    return cookie[cookie_name].value
 
 
 def _read_security_events(log_file):
@@ -35,6 +42,19 @@ def test_session_contains_last_activity_and_csrf_token(client, flask_app, make_u
     assert "csrf_token" in session_data
     assert len(session_data["csrf_token"]) > 20
     assert session_data["last_activity"] == session_data["created_at"]
+
+
+def test_session_cookie_uses_hardening_flags(client, flask_app, make_user):
+    make_user("alice")
+
+    response = _login(client, "alice", "StrongPass!123")
+
+    assert response.status_code == 302
+    set_cookie = response.headers["Set-Cookie"]
+    assert f'{flask_app.config["SESSION_COOKIE_NAME"]}=' in set_cookie
+    assert "HttpOnly;" in set_cookie
+    assert "SameSite=Strict" in set_cookie
+    assert f"Max-Age={flask_app.config['SESSION_TIMEOUT_SECONDS']}" in set_cookie
 
 
 def test_session_last_activity_refreshes_on_access(
@@ -114,6 +134,62 @@ def test_logout_destroys_session(client, flask_app, make_user):
 
     sessions_after = load_json(flask_app.config["SESSIONS_FILE"], {})
     assert len(sessions_after) == 0
+
+
+def test_replayed_session_cookie_is_rejected_after_logout(flask_app, make_user):
+    make_user("alice")
+
+    with flask_app.test_client() as victim_client:
+        login_response = _login(victim_client, "alice", "StrongPass!123")
+        session_token = _session_cookie_value(
+            login_response,
+            flask_app.config["SESSION_COOKIE_NAME"],
+        )
+        sessions = load_json(flask_app.config["SESSIONS_FILE"], {})
+        csrf_token = next(iter(sessions.values()))["csrf_token"]
+
+        logout_response = victim_client.post("/logout", data={"csrf_token": csrf_token})
+        assert logout_response.status_code == 302
+
+    with flask_app.test_client() as hijacker_client:
+        hijacker_client.set_cookie(
+            flask_app.config["SESSION_COOKIE_NAME"],
+            session_token,
+        )
+        response = hijacker_client.get("/dashboard")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
+
+
+def test_replayed_old_session_cookie_is_rejected_after_relogin(flask_app, make_user):
+    make_user("alice")
+
+    with flask_app.test_client() as first_client:
+        first_login = _login(first_client, "alice", "StrongPass!123")
+        old_token = _session_cookie_value(
+            first_login,
+            flask_app.config["SESSION_COOKIE_NAME"],
+        )
+
+    with flask_app.test_client() as second_client:
+        second_login = _login(second_client, "alice", "StrongPass!123")
+        new_token = _session_cookie_value(
+            second_login,
+            flask_app.config["SESSION_COOKIE_NAME"],
+        )
+
+    assert old_token != new_token
+
+    with flask_app.test_client() as hijacker_client:
+        hijacker_client.set_cookie(
+            flask_app.config["SESSION_COOKIE_NAME"],
+            old_token,
+        )
+        response = hijacker_client.get("/dashboard")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
 
 
 def test_session_creation_and_destruction_are_logged(client, flask_app, make_user):

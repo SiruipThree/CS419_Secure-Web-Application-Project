@@ -25,3 +25,22 @@ def test_http_is_redirected_to_https_when_enabled(client, flask_app):
 
     assert response.status_code == 301
     assert response.headers["Location"] == "https://localhost/"
+
+
+def test_internal_server_error_uses_custom_error_page(client, flask_app):
+    original_index = flask_app.view_functions["index"]
+    original_propagate = flask_app.config.get("PROPAGATE_EXCEPTIONS")
+
+    def broken_index():
+        raise RuntimeError("boom")
+
+    flask_app.view_functions["index"] = broken_index
+    flask_app.config["PROPAGATE_EXCEPTIONS"] = False
+    try:
+        response = client.get("/")
+    finally:
+        flask_app.view_functions["index"] = original_index
+        flask_app.config["PROPAGATE_EXCEPTIONS"] = original_propagate
+
+    assert response.status_code == 500
+    assert b"500 Internal Server Error" in response.data
