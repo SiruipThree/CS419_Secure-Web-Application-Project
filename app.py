@@ -320,6 +320,35 @@ def create_app() -> Flask: # create and configure the Flask application
         invalidate_session(app.config, session_token, reason="logout")
         response = redirect(url_for("index"))
         return _clear_session_cookie(response, app)
+
+    @app.route("/change-password", methods=["GET", "POST"])
+    @require_auth
+    def change_password():
+        context = {"error": None, "success": None}
+        if request.method == "POST":
+            old_password = request.form.get("old_password", "")
+            new_password = request.form.get("new_password", "")
+            confirm_password = request.form.get("confirm_password", "")
+
+            result = auth_service().change_password(
+                current_user()["username"],
+                old_password,
+                new_password,
+                confirm_password,
+            )
+
+            if "success" in result:
+                session_token = request.cookies.get(app.config["SESSION_COOKIE_NAME"])
+                invalidate_session(app.config, session_token, reason="password_change")
+                response = redirect(url_for("login"))
+                flash_response = _clear_session_cookie(response, app)
+                return flash_response
+
+            context["error"] = result["error"]
+            return render_template("change_password.html", **context), 400
+
+        return render_template("change_password.html", **context)
+
     #dashboard for users with dashboard access, showing recent documents and audit events, with different scopes based on role.
     @app.route("/dashboard")
     @require_auth
