@@ -16,15 +16,21 @@ class Config:
     TLS_CERT_FILE = os.getenv("TLS_CERT_FILE")
     TLS_KEY_FILE = os.getenv("TLS_KEY_FILE")
 
+#TODO: session cookie setting 
     SESSION_COOKIE_NAME = "session_token"
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SECURE = ENV != "development"
     SESSION_COOKIE_SAMESITE = "Strict"
     SESSION_TIMEOUT_SECONDS = int(os.getenv("SESSION_TIMEOUT_SECONDS", "1800"))
 
-    MAX_LOGIN_ATTEMPTS = 5
-    ACCOUNT_LOCKOUT_MINUTES = 15
-    MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE = 10
+
+#TODO: security lgoin setting 
+#BUGFIXED: not read by auth !!!!!
+    MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
+    ACCOUNT_LOCKOUT_MINUTES = int(os.getenv("ACCOUNT_LOCKOUT_MINUTES", "15"))
+    MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE = int(
+        os.getenv("MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE", "10")
+    )
 
     MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "16"))
     MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024

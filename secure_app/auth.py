@@ -16,9 +16,26 @@ from secure_app.storage import load_json, save_json
 
 
 class UserAuth:
-    def __init__(self, users_file="data/users.json", rate_limits_file="data/rate_limits.json"):
+    def __init__(
+        self,
+        users_file="data/users.json",
+        rate_limits_file="data/rate_limits.json",
+        *,
+        max_login_attempts: int = 5,
+        account_lockout_minutes: int = 15,
+        max_login_attempts_per_ip_per_minute: int = 10,
+    ):
         self.users_file = Path(users_file)
         self.rate_limits_file = Path(rate_limits_file)
+        self.max_login_attempts = max(int(max_login_attempts), 1)
+        self.account_lockout_minutes = max(int(account_lockout_minutes), 1)
+        self.max_login_attempts_per_ip_per_minute = max(
+            int(max_login_attempts_per_ip_per_minute),
+            1,
+        )
+
+    def _account_lockout_seconds(self) -> int:
+        return self.account_lockout_minutes * 60
 
     def _log_login_failure(
         self,
@@ -53,14 +70,14 @@ class UserAuth:
         save_json(self.users_file, users)
 
     def _check_rate_limit(self, ip_address: str | None) -> bool:
-        """Allow at most 10 login attempts per IP address per minute."""
+        """Allow a configured number of login attempts per IP address per minute."""
 
         limits = load_json(self.rate_limits_file, {})
         now = time.time()
         key = ip_address or "unknown"
 
         attempts = [timestamp for timestamp in limits.get(key, []) if now - timestamp < 60]
-        if len(attempts) >= 10:
+        if len(attempts) >= self.max_login_attempts_per_ip_per_minute:
             return False
 
         attempts.append(now)
@@ -232,12 +249,17 @@ class UserAuth:
             return {"success": True, "user_id": username, "role": role}
 
         user["failed_attempts"] = int(user.get("failed_attempts", 0)) + 1
-        if user["failed_attempts"] >= 5:
-            user["locked_until"] = time.time() + (15 * 60)
+        if user["failed_attempts"] >= self.max_login_attempts:
+            user["locked_until"] = time.time() + self._account_lockout_seconds()
             security_log.log_event(
                 "ACCOUNT_LOCKED",
                 user_id=username,
-                details={"reason": "Exceeded maximum failed attempts (5)"},
+                details={
+                    "reason": (
+                        "Exceeded maximum failed attempts "
+                        f"({self.max_login_attempts})"
+                    )
+                },
                 severity="ERROR",
             )
 
@@ -331,7 +353,7 @@ class UserAuth:
         self,
         username: str,
         *,
-        duration_seconds: int = 15 * 60,
+        duration_seconds: int | None = None,
         actor_username: str | None = None,
     ):
         users = self._load_users()
@@ -339,7 +361,13 @@ class UserAuth:
         if not user:
             return {"error": "User not found."}
 
-        user["failed_attempts"] = max(int(user.get("failed_attempts", 0)), 5)
+        if duration_seconds is None:
+            duration_seconds = self._account_lockout_seconds()
+
+        user["failed_attempts"] = max(
+            int(user.get("failed_attempts", 0)),
+            self.max_login_attempts,
+        )
         user["locked_until"] = time.time() + max(int(duration_seconds), 1)
         users[username] = user
         self._save_users(users)

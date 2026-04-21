@@ -54,6 +54,11 @@ def make_user(flask_app):
     auth_service = UserAuth(
         flask_app.config["USERS_FILE"],
         flask_app.config["RATE_LIMITS_FILE"],
+        max_login_attempts=flask_app.config["MAX_LOGIN_ATTEMPTS"],
+        account_lockout_minutes=flask_app.config["ACCOUNT_LOCKOUT_MINUTES"],
+        max_login_attempts_per_ip_per_minute=flask_app.config[
+            "MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE"
+        ],
     )
 
     def _make_user(

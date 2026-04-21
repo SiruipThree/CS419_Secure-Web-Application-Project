@@ -1,10 +1,10 @@
-from functools import wraps
-from io import BytesIO
+from functools import wraps # wraps login checking and role checking decorators
+from io import BytesIO # used for sending file-like objects in responses
 
 from flask import (
     Flask,
-    abort,
-    g,
+    abort, #error response helper
+    g, #store current user and other request-scoped data
     redirect,
     render_template,
     request,
@@ -12,8 +12,8 @@ from flask import (
     url_for,
 )
 
-from config import Config
-from secure_app.access_control import (
+from config import Config #get configuration settings
+from secure_app.access_control import ( #who can do what based on their role
     can_access_dashboard,
     can_create_content,
     can_manage_users,
@@ -21,8 +21,8 @@ from secure_app.access_control import (
     can_view_shared_content,
     normalize_system_role,
 )
-from secure_app.auth import UserAuth
-from secure_app.documents import (
+from secure_app.auth import UserAuth #认证服务类
+from secure_app.documents import (#functions for handling documents 
     authorize_document_share_management,
     authorize_document_access,
     authorize_owned_document_edit,
@@ -51,17 +51,17 @@ from secure_app.sessions import (
     invalidate_session,
     invalidate_user_sessions,
 )
-from secure_app.storage import bootstrap_storage
+from secure_app.storage import bootstrap_storage #initialize storage directories and files if needed
 
 
-def _request_is_secure() -> bool:
-    forwarded_proto = request.headers.get("X-Forwarded-Proto", "")
+def _request_is_secure() -> bool:# determine if it is secure 
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "") #xforward proto
     if forwarded_proto:
         return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
     return request.is_secure
 
 
-def _anonymous_user() -> dict:
+def _anonymous_user() -> dict: #represent an unauthenticated user
     return {
         "username": None,
         "role": None,
@@ -69,7 +69,7 @@ def _anonymous_user() -> dict:
     }
 
 
-def _set_session_cookie(response, app: Flask, session_token: str):
+def _set_session_cookie(response, app: Flask, session_token: str): #config session token
     response.set_cookie(
         app.config["SESSION_COOKIE_NAME"],
         session_token,
@@ -86,8 +86,8 @@ def _clear_session_cookie(response, app: Flask):
     response.delete_cookie(app.config["SESSION_COOKIE_NAME"], path="/")
     return response
 
-
-def create_app() -> Flask:
+#TODO：flask app and internal tools 
+def create_app() -> Flask: # create and configure the Flask application
     app = Flask(__name__)
     app.config.from_object(Config)
 
@@ -98,6 +98,11 @@ def create_app() -> Flask:
         return UserAuth(
             app.config["USERS_FILE"],
             app.config["RATE_LIMITS_FILE"],
+            max_login_attempts=app.config["MAX_LOGIN_ATTEMPTS"],
+            account_lockout_minutes=app.config["ACCOUNT_LOCKOUT_MINUTES"],
+            max_login_attempts_per_ip_per_minute=app.config[
+                "MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE"
+            ],
         )
 
     def current_user() -> dict:
@@ -121,7 +126,7 @@ def create_app() -> Flask:
 
         return wrapped
 
-    def require_role(permission_check, capability_name: str):
+    def require_role(permission_check, capability_name: str): #check the role, and permission
         def decorator(view):
             @wraps(view)
             def wrapped(*args, **kwargs):
@@ -146,7 +151,8 @@ def create_app() -> Flask:
             return wrapped
 
         return decorator
-
+#ToDo: auto logic
+    # Enforce HTTPS for all requests if configured, by checking the request scheme and redirecting to HTTPS if necessary.
     @app.before_request
     def require_https():
         if app.config["FORCE_HTTPS"] and not _request_is_secure():
@@ -155,10 +161,10 @@ def create_app() -> Flask:
         return None
 
     @app.before_request
-    def load_current_user():
+    def load_current_user(): #默认设置成匿名用户，如果有session cookie，尝试加载用户信息到g.current_user，否则保持匿名状态，并在请求结束后根据需要清除cookie
         g.current_user = _anonymous_user()
-        g.clear_session_cookie = False
-
+        g.clear_session_cookie = False # assume we won't need to clear the cookie unless we find an invalid session
+        # trying to reconnize the user based on session cookie
         session_token = request.cookies.get(app.config["SESSION_COOKIE_NAME"])
         if not session_token:
             return None
@@ -166,8 +172,8 @@ def create_app() -> Flask:
         session_data = get_session(app.config, session_token)
         if session_data is None:
             g.clear_session_cookie = True
-            return None
-
+            return None #invalid session token, clear cookie on response
+    #otherwise, we have session data, try to load the user
         user = auth_service().get_user(session_data.get("user_id"))
         if user is None:
             invalidate_session(app.config, session_token, reason="user_missing")
@@ -217,7 +223,7 @@ def create_app() -> Flask:
         if getattr(g, "clear_session_cookie", False):
             _clear_session_cookie(response, app)
         return apply_security_headers(response)
-
+    #index login, signup, logout. 
     @app.route("/")
     def index():
         return render_template("index.html")
@@ -308,7 +314,7 @@ def create_app() -> Flask:
         invalidate_session(app.config, session_token, reason="logout")
         response = redirect(url_for("index"))
         return _clear_session_cookie(response, app)
-
+    #dashboard for users with dashboard access, showing recent documents and audit events, with different scopes based on role.
     @app.route("/dashboard")
     @require_auth
     @require_role(can_access_dashboard, "dashboard_access")
@@ -385,6 +391,7 @@ def create_app() -> Flask:
 
         return render_template("upload.html", **context), status_code
 
+#doc operations
     @app.route("/documents/<document_id>/edit", methods=["GET", "POST"])
     @require_auth
     def edit_document(document_id: str):
@@ -483,7 +490,7 @@ def create_app() -> Flask:
             abort(403)
 
         return redirect(url_for("dashboard"))
-
+#doc operations 2
     @app.route("/documents")
     @require_auth
     @require_role(can_view_shared_content, "document_browse")
@@ -676,7 +683,7 @@ def create_app() -> Flask:
         context["share_role_value"] = "viewer"
         context["share_entries"] = list_document_shares(app.config, document_id)
         return render_template("document_preview.html", **context)
-
+    #share and admin console
     @app.route("/shared")
     @require_auth
     def shared():
@@ -747,7 +754,6 @@ def create_app() -> Flask:
 
         result = auth_service().lock_user(
             target_username,
-            duration_seconds=app.config["ACCOUNT_LOCKOUT_MINUTES"] * 60,
             actor_username=user["username"],
         )
         if result.get("error"):
@@ -801,7 +807,7 @@ def create_app() -> Flask:
 
     return app
 
-
+#local development 
 app = create_app()
 
 

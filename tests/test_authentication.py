@@ -55,11 +55,13 @@ def test_account_locks_after_five_failed_attempts_for_fifteen_minutes(
 ):
     now = 1_700_000_000
     monkeypatch.setattr(auth_module.time, "time", lambda: now)
+    max_login_attempts = flask_app.config["MAX_LOGIN_ATTEMPTS"]
+    lockout_minutes = flask_app.config["ACCOUNT_LOCKOUT_MINUTES"]
 
     make_user("alice")
     flask_app.config["SECURITY_LOG_FILE"].write_text("", encoding="utf-8")
 
-    for _ in range(5):
+    for _ in range(max_login_attempts):
         response = _login_attempt(
             client,
             "alice",
@@ -70,8 +72,8 @@ def test_account_locks_after_five_failed_attempts_for_fifteen_minutes(
 
     user_record = load_json(flask_app.config["USERS_FILE"], {})["alice"]
 
-    assert user_record["failed_attempts"] == 5
-    assert user_record["locked_until"] == now + (15 * 60)
+    assert user_record["failed_attempts"] == max_login_attempts
+    assert user_record["locked_until"] == now + (lockout_minutes * 60)
 
     response = _login_attempt(
         client,
@@ -81,7 +83,10 @@ def test_account_locks_after_five_failed_attempts_for_fifteen_minutes(
     )
 
     assert response.status_code == 400
-    assert b"Account locked. Try again in 15 minutes." in response.data
+    assert (
+        f"Account locked. Try again in {lockout_minutes} minutes.".encode("utf-8")
+        in response.data
+    )
 
     events = _read_security_events(flask_app.config["SECURITY_LOG_FILE"])
 
@@ -105,8 +110,9 @@ def test_rate_limit_blocks_the_eleventh_attempt_from_the_same_ip(
     now = 1_700_000_000
     monkeypatch.setattr(auth_module.time, "time", lambda: now)
     flask_app.config["SECURITY_LOG_FILE"].write_text("", encoding="utf-8")
+    per_ip_limit = flask_app.config["MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE"]
 
-    for _ in range(10):
+    for _ in range(per_ip_limit):
         response = _login_attempt(
             client,
             "ghost",
@@ -127,7 +133,7 @@ def test_rate_limit_blocks_the_eleventh_attempt_from_the_same_ip(
     assert b"Rate limit exceeded. Try again in a minute." in response.data
 
     rate_limits = load_json(flask_app.config["RATE_LIMITS_FILE"], {})
-    assert len(rate_limits["198.51.100.24"]) == 10
+    assert len(rate_limits["198.51.100.24"]) == per_ip_limit
 
     events = _read_security_events(flask_app.config["SECURITY_LOG_FILE"])
 
@@ -138,6 +144,56 @@ def test_rate_limit_blocks_the_eleventh_attempt_from_the_same_ip(
         for event in events
     )
     assert any(event["event_type"] == "SUSPICIOUS_ACTIVITY" for event in events)
+
+
+def test_account_lock_thresholds_follow_config(client, flask_app, make_user, monkeypatch):
+    now = 1_700_000_000
+    monkeypatch.setattr(auth_module.time, "time", lambda: now)
+    flask_app.config.update(
+        MAX_LOGIN_ATTEMPTS=3,
+        ACCOUNT_LOCKOUT_MINUTES=2,
+    )
+
+    make_user("alice")
+
+    for _ in range(flask_app.config["MAX_LOGIN_ATTEMPTS"]):
+        response = _login_attempt(
+            client,
+            "alice",
+            "WrongPass!123",
+            ip_address="203.0.113.11",
+        )
+        assert response.status_code == 400
+
+    user_record = load_json(flask_app.config["USERS_FILE"], {})["alice"]
+    assert user_record["failed_attempts"] == 3
+    assert user_record["locked_until"] == now + (2 * 60)
+
+
+def test_rate_limit_threshold_follows_config(client, flask_app, monkeypatch):
+    now = 1_700_000_000
+    monkeypatch.setattr(auth_module.time, "time", lambda: now)
+    flask_app.config["MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE"] = 4
+
+    for _ in range(flask_app.config["MAX_LOGIN_ATTEMPTS_PER_IP_PER_MINUTE"]):
+        response = _login_attempt(
+            client,
+            "ghost",
+            "WrongPass!123",
+            ip_address="198.51.100.25",
+        )
+        assert response.status_code == 400
+        assert b"Rate limit exceeded" not in response.data
+
+    response = _login_attempt(
+        client,
+        "ghost",
+        "WrongPass!123",
+        ip_address="198.51.100.25",
+    )
+
+    assert response.status_code == 400
+    assert b"Rate limit exceeded. Try again in a minute." in response.data
 
 
 def test_successful_login_creates_a_server_side_session(client, flask_app, make_user):

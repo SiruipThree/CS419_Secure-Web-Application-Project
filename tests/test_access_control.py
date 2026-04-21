@@ -175,7 +175,7 @@ def test_admin_can_lock_and_unlock_user_from_console(
 
     users = load_json(flask_app.config["USERS_FILE"], {})
     assert users["managed_user"]["locked_until"] is not None
-    assert users["managed_user"]["failed_attempts"] >= 5
+    assert users["managed_user"]["failed_attempts"] >= flask_app.config["MAX_LOGIN_ATTEMPTS"]
 
     unlock_response = client.post(
         "/admin/users/managed_user/unlock",
