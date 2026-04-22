@@ -21,3 +21,4 @@ dist/
 *.egg-info/
 .eggs/
 AGENT_PROGRESS_LOCAL.md
+docs/security_design_final.md
