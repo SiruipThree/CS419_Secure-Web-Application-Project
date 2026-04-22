@@ -243,6 +243,13 @@ def scan_for_malware(payload: bytes) -> tuple[bool, str]:
     return True, "File passed malware scanning."
 
 
+def _is_secure_request() -> bool:
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "")
+    if forwarded_proto:
+        return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
+    return request.is_secure
+
+
 def apply_security_headers(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -258,7 +265,7 @@ def apply_security_headers(response):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    if has_request_context() and request.is_secure:
+    if has_request_context() and _is_secure_request():
         response.headers["Strict-Transport-Security"] = (
             "max-age=31536000; includeSubDomains"
         )

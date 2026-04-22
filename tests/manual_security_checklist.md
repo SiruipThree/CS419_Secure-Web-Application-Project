@@ -1,22 +1,22 @@
 # Manual Security Checklist
 
-- [ ] Weak password rejected
-- [ ] Duplicate username rejected
-- [ ] Duplicate email rejected
-- [ ] Login lockout after 5 failures
-- [ ] Rate limit after repeated requests from one IP
-- [ ] Guest cannot upload
-- [ ] User cannot access admin routes
-- [ ] Viewer cannot edit document
-- [ ] Path traversal filename rejected
-- [ ] Unsupported file extension rejected
-- [ ] MIME type mismatch rejected
-- [ ] File signature mismatch rejected
-- [ ] Oversized upload rejected with 413
-- [ ] Uploaded document stored encrypted at rest
-- [ ] HTTP redirected to HTTPS outside development
-- [ ] HSTS header present on HTTPS responses
-- [ ] Session expires after timeout
-- [ ] Logout invalidates session token
-- [ ] Required security headers present
-- [ ] Debug mode disabled for production
+- [x] Weak password rejected
+- [x] Duplicate username rejected
+- [x] Duplicate email rejected
+- [x] Login lockout after 5 failures
+- [x] Rate limit after repeated requests from one IP
+- [x] Guest cannot upload
+- [x] User cannot access admin routes
+- [x] Viewer cannot edit document
+- [x] Path traversal filename rejected
+- [x] Unsupported file extension rejected
+- [x] MIME type mismatch rejected
+- [x] File signature mismatch rejected
+- [x] Oversized upload rejected with 413
+- [x] Uploaded document stored encrypted at rest
+- [x] HTTP redirected to HTTPS outside development
+- [x] HSTS header present on HTTPS responses
+- [x] Session expires after timeout
+- [x] Logout invalidates session token
+- [x] Required security headers present
+- [x] Debug mode disabled for production

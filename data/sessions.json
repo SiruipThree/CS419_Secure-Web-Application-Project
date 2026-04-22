@@ -1,1 +1,10 @@
-{}
+{
+  "1TLBLjA6DI_8w3DGXFFO-23w7OIp9dJLS77OZJwOsvA": {
+    "user_id": "admin1",
+    "system_role": "admin",
+    "created_at": 1776826065.949634,
+    "last_activity": 1776826065.949634,
+    "expires_at": 1776827865.949634,
+    "csrf_token": "Z8iAfxfs-KvakJP89-nLsGawPV2Kjems4VBoxtW6QKM"
+  }
+}
