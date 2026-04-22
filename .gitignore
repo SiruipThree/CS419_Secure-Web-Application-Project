@@ -1,4 +1,7 @@
 .venv/
+.venv-*/
+venv/
+env/
 __pycache__/
 .pytest_cache/
 *.pyc
@@ -17,5 +20,4 @@ build/
 dist/
 *.egg-info/
 .eggs/
-venv/
-env/
+AGENT_PROGRESS_LOCAL.md
